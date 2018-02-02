@@ -1,0 +1,22 @@
+{
+  "name": "ahmed-oz/magento-cron-products",
+  "description": "Add Update and Delete catalog products with Atelier CSV",
+  "type": "magento2-module",
+  "require": {
+    "php": ">=5.4.0"
+  },
+  "autoload": {
+    "files": [
+      "registration.php"
+    ],
+    "psr-4": {
+      "Twentyone\\CronProducts\\": ""
+    }
+  },
+  "version": "1.0",
+  "authors": [
+    {
+      "name": "Afroze Shaik"
+    }
+  ]
+}
