@@ -13,9 +13,13 @@ use Magento\Catalog\Model\Product;
 use Magento\Catalog\Model\ProductRepository;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Magento\Catalog\Model\ResourceModel\Product\Interceptor;
+use Magento\CatalogImportExport\Model\Import\Proxy\Product\ResourceModel;
+use Magento\ConfigurableProduct\Model\Product\Type\Configurable\Attribute;
 use Magento\Eav\Model\Config;
 use Magento\Framework\App\State;
 use Magento\Framework\Exception\LocalizedException;
+use Magento\Framework\Setup\ModuleContextInterface;
+use Magento\Framework\Setup\ModuleDataSetupInterface;
 use MagentoEnv\Entity\ConfigEnv;
 use PhpOffice\PhpSpreadsheet\Reader\Csv;
 use PhpOffice\PhpSpreadsheet\Reader\Exception;
@@ -48,11 +52,20 @@ class CronProductsCommand extends Command
         $collectionFactory,
         $productModel,
         $productRepository;
+    /**
+     * @var ResourceModel
+     * @var array
+     * @var Attribute
+     */
+    private $resourceMode,
+        $attributes,
+        $attributeModel;
 
     /**
      * Inject CollectionFactory(products) so to query products of magento and filter
      *
      * CronProductsCommand constructor.
+     * @param ResourceModel $resourceModel
      * @param State $appState
      * @param ConfigEnv $configEnv
      * @param Config $eavConfig
@@ -63,7 +76,8 @@ class CronProductsCommand extends Command
      * @param Product $productModel
      * @param ProductRepository $productRepository
      */
-    public function __construct(State $appState,
+    public function __construct(ResourceModel $resourceModel,
+                                State $appState,
                                 ConfigEnv $configEnv,
                                 Config $eavConfig,
                                 Category $categoryHelper,
@@ -72,11 +86,12 @@ class CronProductsCommand extends Command
                                 CategoryLinkManagementInterface $categoryLinkManagement,
                                 Product $productModel,
                                 ProductRepository $productRepository) {
-        $this->appState = $appState;
         try {
-            $this->appState->setAreaCode('frontend');
+            $appState->setAreaCode(\Magento\Framework\App\Area::AREA_GLOBAL);
         } catch (LocalizedException $e) {
+            var_dump('test');die;
         }
+        $this->appState = $appState;
         $this->configEnv = $configEnv;
         $this->eavConfig = $eavConfig;
         $this->categoryHelper = $categoryHelper;
@@ -85,7 +100,13 @@ class CronProductsCommand extends Command
         $this->collectionFactory = $collectionFactory;
         $this->productModel = $productModel;
         $this->productRepository = $productRepository;
+        $this->resourceModel = $resourceModel;
         parent::__construct();
+    }
+    public function upgrade(ModuleDataSetupInterface $setup, ModuleContextInterface $context )
+    {
+        $setup->startSetup();
+        $setup->endSetup();
     }
 
     /**
@@ -326,6 +347,21 @@ class CronProductsCommand extends Command
         return $returnFlag;
     }
 
+    private function getAttributeIdByCode($code) {
+        $id = null;
+        if ($this->resourceModel) {
+            if (!isset($this->attributes[$code])) {
+                $attr = $this->resourceModel->getAttribute($code);
+                $id = $attr->getId();
+                $this->attributes[$code] = $id;
+            } else {
+                //so you dont search in database every time just search ones and save in attributes array
+                $id = $this->attributes[$code];
+            }
+        }
+        return $id;
+    }
+
     /**
      * This function is executed after the console command is types in terminal
      * get the user entered arguments and options and do the magic
@@ -335,7 +371,9 @@ class CronProductsCommand extends Command
      * @return void
      */
     protected function execute(InputInterface $input, OutputInterface $output) {
-
+        var_dump($this->appState->getAreaCode());
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+        $attributeModel = $objectManager->create('Magento\ConfigurableProduct\Model\Product\Type\Configurable\Attribute');
         $columns = $this->configEnv->getEnv('coloumns');
         $output->writeln('start');
         $output->writeln($this->configEnv->getEnv('csv'));
@@ -349,28 +387,54 @@ class CronProductsCommand extends Command
                         $products = $this->getProductByAtelierId((string)$csvRow[$this->configEnv->getEnv('id_atelier_key')]);
                         if ($products->count() < 1) {
                             //Product doesn't exist create new product with ProductModel
-                            $this->productModel->setName($csvRow[14]);
-                            $this->productModel->setPrice($csvRow[16]);
-                            $this->productModel->setTypeId('configurable');
+                            $this->productModel->setName($csvRow[14])
+                                ->setStoreId(2)
+                                ->setTypeId('configurable')->afterSave();
+                            ;
+                            //$this->productModel->setTypeId('simple');
                             /*
                              *
                              * set attribute_set for the new product
                             */
-                            $this->productModel->setAttributeSetId(4);
-                            $this->productModel->setSku($this->configEnv->getEnv('product_country') . '-' . $csvRow[$this->configEnv->getEnv('id_atelier_key')] . '-' . $csvRow[3] . ' ' . $csvRow[4]);
-                            $this->productModel->save();
+                            $this->productModel->setAttributeSetId(4)
+                                ->setSku($this->configEnv->getEnv('product_country') . '-' . $csvRow[$this->configEnv->getEnv('id_atelier_key')] . '-' . $csvRow[3] . ' ' . $csvRow[4])
+                                ->setStoreId(2)//->setWebsiteIds([2])
+                                ->setTaxClassId(2)
+                                ->setData('id_atelier', $csvRow[$this->configEnv->getEnv('id_atelier_key')])
+                                ->save()
+                            ;
+
+                            //$this->productRepository->save($this->productModel);
+                            //$this->productModel->unlockAttributes()->save()->unlockAttribute('website_ids')->unlockAttributes();
                             $productResource = $this->productModel->getResource();
-                            $this->productModel->setData('id_atelier', $csvRow[$this->configEnv->getEnv('id_atelier_key')]);
-                            $this->productModel->save();
                             $this->setProductAttributes($categories, $columns, $csvRow, $this->productModel, $productResource);
+                            $con = $this->resourceModel->getConnection();
+                            $tableWebsite = $this->resourceModel->getTable('catalog_product_website');
+                            $tablePrice = $this->resourceModel->getTable('catalog_product_entity_decimal');
+                            $con->query("INSERT INTO `".$tableWebsite."` (`product_id`,`website_id`) VALUES ('".$this->productModel->getId()."', '2')");
+                            $con->query("INSERT INTO `".$tablePrice."` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('".$this->getAttributeIdByCode('price')."', '0', '".$this->productModel->getId()."', '".$csvRow[16]."')");
+                            //$p = $this->productModel->load($this->productModel->getId());
+                            //$p->setWebsiteIds([2])->afterSave();
+                            /** @var \Magento\ConfigurableProduct\Api\Data\OptionInterface $option */
+                            $option = $objectManager->create(\Magento\ConfigurableProduct\Api\Data\OptionInterface::class);
+                            $option->setLabel('Size');
+                            $option->setAttributeId($this->getAttributeIdByCode('size_clothes'));
+                            $option->setValues([$this->getAttributeValueId('size_clothes', '30')]);
+
+                            $exteAttrs = $this->productModel->getExtensionAttributes();
+                            $exteAttrs->setConfigurableProductLinks([2625]);
+                            $exteAttrs->setConfigurableProductOptions([
+                                $option
+                            ]);
+
+                            $this->productModel->save();
+
                         } else {
                             foreach ($products->getItems() as $product) {
                                 if (strtolower($product->getTypeId()) != 'simjple') {
                                     //$product->getData('category_ids');
                                     $productResource = $product->getResource();
                                     $this->setProductAttributes($categories, $columns, $csvRow, $product, $productResource);
-                                    //$this->productRepository->save($product);
-                                    //$product->getResource()->saveAttribute($product, ['material']);
                                     //$product->save();
                                 }
                             }
