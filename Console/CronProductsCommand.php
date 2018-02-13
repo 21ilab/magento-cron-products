@@ -10,12 +10,26 @@ namespace Twentyone\CronProducts\Console;
 use Magento\Catalog\Api\CategoryLinkManagementInterface;
 use Magento\Catalog\Helper\Category;
 use Magento\Catalog\Model\Product;
+use Magento\Catalog\Model\Product\Attribute\Source\Status;
+use Magento\Catalog\Model\Product\Type;
+use Magento\Catalog\Model\Product\Visibility;
 use Magento\Catalog\Model\ProductRepository;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Magento\Catalog\Model\ResourceModel\Product\Interceptor;
+use Magento\CatalogImportExport\Model\Import\Proxy\Product\ResourceModel;
+use Magento\CatalogInventory\Model\StockRegistry;
+use Magento\ConfigurableProduct\Helper\Product\Options\Factory;
+use Magento\ConfigurableProduct\Model\Product\Type\Configurable;
+use Magento\ConfigurableProduct\Model\Product\Type\Configurable\Attribute;
 use Magento\Eav\Model\Config;
+use Magento\Framework\App\ObjectManager;
 use Magento\Framework\App\State;
+use Magento\Framework\DB\Adapter\Pdo\Mysql;
+use Magento\Framework\Exception\InputException;
 use Magento\Framework\Exception\LocalizedException;
+use Magento\Framework\Exception\StateException;
+use Magento\Framework\Setup\ModuleContextInterface;
+use Magento\Framework\Setup\ModuleDataSetupInterface;
 use MagentoEnv\Entity\ConfigEnv;
 use PhpOffice\PhpSpreadsheet\Reader\Csv;
 use PhpOffice\PhpSpreadsheet\Reader\Exception;
@@ -50,33 +64,71 @@ class CronProductsCommand extends Command
         $productRepository;
 
     /**
+     * @var array
+     */
+    private $attributes;
+    /**
+     * @var \Magento\Eav\Api\AttributeOptionManagementInterface
+     */
+    private $attributeOptionManagement;
+    /**
+     * @var \Magento\Eav\Model\AttributeRepository
+     */
+    private $attributeRepository;
+    /**
+     * @var \Magento\Eav\Api\Data\AttributeOptionLabelInterface
+     */
+    private $attributeOptionLabel;
+    /**
+     * @var \Magento\Eav\Model\Entity\Attribute\Option
+     */
+    private $attributeOption;
+    /**
+     * @var \Magento\Catalog\Setup\CategorySetupFactory
+     */
+    private $categorySetupFactory;
+    /**
+     * @var StockRegistry
+     */
+    private $stockRegistry;
+
+    /**
      * Inject CollectionFactory(products) so to query products of magento and filter
      *
      * CronProductsCommand constructor.
+     * @param ResourceModel $resourceModel
      * @param State $appState
      * @param ConfigEnv $configEnv
      * @param Config $eavConfig
+     * @param \Magento\Catalog\Api\ProductAttributeRepositoryInterface $attributeRepository
+     * @param \Magento\Catalog\Setup\CategorySetupFactory $categorySetupFactory
      * @param Category $categoryHelper
      * @param \Magento\Catalog\Model\Indexer\Category\Flat\State $categoryState
      * @param CollectionFactory $collectionFactory
      * @param CategoryLinkManagementInterface $categoryLinkManagement
      * @param Product $productModel
      * @param ProductRepository $productRepository
+     * @param StockRegistry $stockRegistry
      */
-    public function __construct(State $appState,
+    public function __construct(ResourceModel $resourceModel,
+                                State $appState,
                                 ConfigEnv $configEnv,
-                                Config $eavConfig,
+                                Config $eavConfig,\Magento\Catalog\Api\ProductAttributeRepositoryInterface $attributeRepository,
+                                \Magento\Catalog\Setup\CategorySetupFactory $categorySetupFactory,
                                 Category $categoryHelper,
                                 \Magento\Catalog\Model\Indexer\Category\Flat\State $categoryState,
                                 CollectionFactory $collectionFactory,
                                 CategoryLinkManagementInterface $categoryLinkManagement,
                                 Product $productModel,
-                                ProductRepository $productRepository) {
-        $this->appState = $appState;
+                                ProductRepository $productRepository,
+                                StockRegistry $stockRegistry) {
         try {
-            $this->appState->setAreaCode('frontend');
+            $appState->setAreaCode(\Magento\Framework\App\Area::AREA_CRONTAB);
         } catch (LocalizedException $e) {
+            var_dump('test');die;
         }
+        parent::__construct();
+        $this->appState = $appState;
         $this->configEnv = $configEnv;
         $this->eavConfig = $eavConfig;
         $this->categoryHelper = $categoryHelper;
@@ -85,7 +137,16 @@ class CronProductsCommand extends Command
         $this->collectionFactory = $collectionFactory;
         $this->productModel = $productModel;
         $this->productRepository = $productRepository;
-        parent::__construct();
+        $this->resourceModel = $resourceModel;
+        $this->attributeRepository = $attributeRepository;
+        $this->categorySetupFactory = $categorySetupFactory;
+        $this->stockRegistry = $stockRegistry;
+    }
+    
+    public function upgrade(ModuleDataSetupInterface $setup, ModuleContextInterface $context )
+    {
+        $setup->startSetup();
+        $setup->endSetup();
     }
 
     /**
@@ -310,12 +371,20 @@ class CronProductsCommand extends Command
             if ($column['type'] == 2) {
                 //values are 1 or 2, 1 for text value 2 for select and other multiple type input values
                 $attrValue = $this->getAttributeValueId($column['code'], $csvRow[$columnKey]);
-                if ($attrValue == null) {
-                    $returnFlag = false;
+                if ($attrValue == null && trim($csvRow[$columnKey]) != "") {
+                    $returnFlag = true;
                     //value doesn't exist in attribute send error output on terminal
                     $output->writeln("Error: Attribute value{" . $csvRow[$columnKey] . "} code{" . $column['code'] . "} doesn't exist, row: " . ($csvKey+1));
                 }
             }
+        }
+
+        $attributeSet = $this->getAttributeSetId($csvRow);
+        $attributeSize = $this->getSizeAttributeCode($attributeSet);
+
+        if ($attributeSet == null) {
+            $returnFlag = false;
+            $output->writeln("Error : Attribute set doesn't exits {".$csvRow[39]."}");
         }
 
         if ($this->getCategoryId($categories, $csvRow) == null) {
@@ -324,6 +393,40 @@ class CronProductsCommand extends Command
         }
 
         return $returnFlag;
+    }
+
+    private function checkIfDataIsValidForAvailability() {
+
+    }
+
+    private function getAttributeIdByCode($code) {
+        $id = null;
+        if ($this->resourceModel && $code) {
+            if (!isset($this->attributes[$code])) {
+                $attr = $this->resourceModel->getAttribute($code);
+                $id = $attr->getId();
+                $this->attributes[$code] = $attr;
+            } else {
+                //so you dont search in database every time just search ones and save in attributes array
+                $id = $this->attributes[$code]->getId();
+            }
+        }
+        return $id;
+    }
+
+    private function getAttributeLabelByCode($code) {
+        $id = null;
+        if ($this->resourceModel && $code) {
+            if (!isset($this->attributes[$code])) {
+                $attr = $this->resourceModel->getAttribute($code);
+                $id = $attr->getDefaultFrontendLabel();
+                $this->attributes[$code] = $attr;
+            } else {
+                //so you dont search in database every time just search ones and save in attributes array
+                $id = $this->attributes[$code]->getDefaultFrontendLabel();
+            }
+        }
+        return $id;
     }
 
     /**
@@ -335,6 +438,14 @@ class CronProductsCommand extends Command
      * @return void
      */
     protected function execute(InputInterface $input, OutputInterface $output) {
+        var_dump($this->appState->getAreaCode());
+        /** @var $product Product */
+        //$product = Bootstrap::getObjectManager()->create(Product::class);
+        /** @var Factory $optionsFactory */
+
+        $objectManager = ObjectManager::getInstance();
+        //$this->productModel = $objectManager->create(Product::class);
+        $optionsFactory = $objectManager->create(Factory::class);
 
         $columns = $this->configEnv->getEnv('coloumns');
         $output->writeln('start');
@@ -343,34 +454,51 @@ class CronProductsCommand extends Command
             $categories = $this->getCategoriesArray();
             $csvArray = $this->readCsvFile($this->configEnv->getEnv('csv'));
             foreach ($csvArray as $key => $csvRow) {
+                $attributeSet = $this->getAttributeSetId($csvRow);
                 if ($this->checkIfDataIsValid($categories, $columns, $csvRow, $key, $output)) {
                     if ($this->isProductOfThisEnv($csvRow)) {
                         //check product if it belongs to current environment
-                        $products = $this->getProductByAtelierId((string)$csvRow[$this->configEnv->getEnv('id_atelier_key')]);
+                        $products = $this->getProductByAtelierId((string)$csvRow[0], Configurable::TYPE_CODE);
                         if ($products->count() < 1) {
                             //Product doesn't exist create new product with ProductModel
-                            $this->productModel->setName($csvRow[14]);
-                            $this->productModel->setPrice($csvRow[16]);
-                            $this->productModel->setTypeId('configurable');
+                            $productModel = clone $this->productModel;
+                            $productModel->setName($csvRow[14])
+                                ->setStoreId(2)
+                                ->setTypeId(Configurable::TYPE_CODE)
+                            ;
+
                             /*
                              *
                              * set attribute_set for the new product
                             */
-                            $this->productModel->setAttributeSetId(4);
-                            $this->productModel->setSku($this->configEnv->getEnv('product_country') . '-' . $csvRow[$this->configEnv->getEnv('id_atelier_key')] . '-' . $csvRow[3] . ' ' . $csvRow[4]);
-                            $this->productModel->save();
-                            $productResource = $this->productModel->getResource();
-                            $this->productModel->setData('id_atelier', $csvRow[$this->configEnv->getEnv('id_atelier_key')]);
-                            $this->productModel->save();
-                            $this->setProductAttributes($categories, $columns, $csvRow, $this->productModel, $productResource);
+                            $productModel->setAttributeSetId($attributeSet)
+                                ->setSku($this->configEnv->getEnv('product_country') . '-' . $csvRow[0] . '-' . $csvRow[3] . ' ' . $csvRow[4])
+                                ->setStoreId(2)//->setWebsiteIds([2])
+                                //->setTaxClassId(2)
+                                ->setVisibility(Visibility::VISIBILITY_BOTH)
+                                ->setStatus(Status::STATUS_ENABLED)
+                                ->setData('id_atelier', $csvRow[0])
+                                //->setStockData(['use_config_manage_stock' => 1, 'is_in_stock' => 1])
+                            ;
+                            $productModel
+                                ->isInStock();
+                            $productModel->save();
+
+                            $productResource = $productModel->getResource();
+                            $this->setProductAttributes($categories, $columns, $csvRow, $productModel, $productResource);
+                            $con = $this->resourceModel->getConnection();
+                            $tableWebsite = $this->resourceModel->getTable('catalog_product_website');
+                            $con->query("INSERT INTO `".$tableWebsite."` (`product_id`,`website_id`) VALUES ('".$productModel->getId()."', '".$this->configEnv->getEnv('website_id')."')");
                         } else {
+                            /** @var Product $product */
                             foreach ($products->getItems() as $product) {
-                                if (strtolower($product->getTypeId()) != 'simjple') {
+                                $product->reindex();
+                                if (strtolower($product->getTypeId()) != 'simple') {
                                     //$product->getData('category_ids');
                                     $productResource = $product->getResource();
                                     $this->setProductAttributes($categories, $columns, $csvRow, $product, $productResource);
-                                    //$this->productRepository->save($product);
-                                    //$product->getResource()->saveAttribute($product, ['material']);
+
+                                    $this->addProductVariations($product, $objectManager);
                                     //$product->save();
                                 }
                             }
@@ -378,6 +506,114 @@ class CronProductsCommand extends Command
                     }
                 }
             }
+
+            $csvArraySimple = $this->readCsvFile($this->configEnv->getEnv('availability_csv'));
+            foreach ($csvArraySimple as $key => $csvRow) {
+                $configProduct = null;
+                $productModel = null;
+                $addNewSimple = true;
+                $addVariationFlag = false;
+                $products = $this->getProductByAtelierId((string)$csvRow[0], Configurable::TYPE_CODE);
+                foreach ($products as $product) {
+                    $configProduct = $product;
+                }
+                if ($configProduct) {
+                    $sizeAttributeCode = $this->getSizeAttributeCode($configProduct->getAttributeSetId());
+                    $products = $this->getProductByAtelierId((string)$csvRow[0], Type::TYPE_SIMPLE);
+                    foreach ($products as $product) {
+                        if ($product->getSku() == $configProduct->getSku()."_".$csvRow[1]) {
+                            $productModel = $product;
+                            $productResource = $productModel->getResource();
+                            $productModel->setData($sizeAttributeCode, $this->getAttributeValueId($sizeAttributeCode, $csvRow[1]));
+                            $productResource->saveAttribute($productModel, $sizeAttributeCode);
+                            $addNewSimple = false;
+                            $addVariationFlag = true;
+
+                            /**
+                             * @var \Magento\CatalogInventory\Api\StockRegistryInterface
+                             */
+                            $productStockData = $this->stockRegistry->getStockItem($productModel->getId());
+                            $productStockData->setQty($csvRow[2])
+                                ->setManageStock(1)
+                                ->setMinQty(1)
+                                ->setIsQtyDecimal(false)
+                            ;
+
+                            if ($csvRow[2] > 0) {
+                                $productStockData->setIsInStock(1)
+                                    ->setData('is_in_stock', 1);
+                            } else {
+                                $productStockData->setIsInStock(0)
+                                    ->setData('is_in_stock', 0);
+                            }
+
+                            $productStockData->setData('qty', $csvRow[2])
+                                ->setData('manage_stock', 1)
+                            ;
+                            $this->stockRegistry->updateStockItemBySku($productModel->getSku(), $productStockData);
+
+                            $this->setSimpleProductAttributes($productModel, $productResource, $configProduct);
+                            $this->setPrice($product, $productResource->getConnection(), $configProduct->getSpecialPrice());
+                        }
+                    }
+                    if ($addNewSimple) {
+                        $addVariationFlag = true;
+                        $productModel = clone $this->productModel;
+                        $productResource = $productModel->getResource();
+                        $productModel->setTypeId(Type::TYPE_SIMPLE)
+                            ->setAttributeSetId($configProduct->getAttributeSetId())
+                            //->setWebsiteIds([1])
+                            ->setName($configProduct->getName())
+                            ->setSku($configProduct->getSku().'_' . $csvRow[1])
+                            ->setQty($csvRow[2])
+                            ->setData('qty',$csvRow[2])
+                            ->setVisibility(Visibility::VISIBILITY_NOT_VISIBLE)
+                            ->setStatus($configProduct->getStatus())
+                            //->setStockData(['use_config_manage_stock' => 1, 'qty' => 100, 'is_qty_decimal' => 0, 'is_in_stock' => 1])
+                        ;
+                        $productModel->setData('id_atelier', $csvRow[0]);
+                        $productModel->setData($sizeAttributeCode, $this->getAttributeValueId('size_clothes', $csvRow[1]));
+                        //$productModel->setData('qty',$csvRow[2]);
+                        //$productModel->setQty($csvRow[2]);
+                        $productModel->save();
+
+                        $this->setSimpleProductAttributes($productModel, $productResource, $configProduct);
+                        /**
+                         * @var \Magento\CatalogInventory\Api\StockRegistryInterface
+                         */
+                        $productStockData = $this->stockRegistry->getStockItem($productModel->getId());
+                        $productStockData->setQty($csvRow[2])
+                            ->setManageStock(1)
+                            ->setMinQty(1)
+                            ->setIsQtyDecimal(false)
+                        ;
+
+                        if ($csvRow[2] > 0) {
+                            $productStockData->setIsInStock(1)
+                                ->setData('is_in_stock', 1);
+                        } else {
+                            $productStockData->setIsInStock(0)
+                                ->setData('is_in_stock', 0);
+                        }
+
+                        $productStockData->setData('qty', $csvRow[2])
+                            ->setData('manage_stock', 1)
+                        ;
+                        $this->stockRegistry->updateStockItemBySku($productModel->getSku(), $productStockData);
+
+                        $tableWebsite = $this->resourceModel->getTable('catalog_product_website');
+                        $productModel->getResource()->getConnection()->query("INSERT INTO `".$tableWebsite."` (`product_id`,`website_id`) VALUES ('".$productModel->getId()."', '".$this->configEnv->getEnv('website_id')."')");
+                        $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getSpecialPrice());
+                    }
+                    if ($addVariationFlag) {
+                        $this->addProductVariations($configProduct, $objectManager);
+                    }
+                } else {
+                    $output->writeln("Error: No configurable product for id_atelier: ".$csvRow[0]);
+                }
+            }
+
+
         } catch (Exception $e) {
             $output->writeln("Error: ".$e->getMessage());
         } catch (\PhpOffice\PhpSpreadsheet\Exception $e) {
@@ -390,14 +626,60 @@ class CronProductsCommand extends Command
     }
 
     /**
+     * @param Product $product
+     * @param ObjectManager $objectManager
+     * @return void
+     */
+    private function addProductVariations($product, $objectManager) {
+        $attributeSet = $product->getAttributeSetId();
+        $sizeAttributeCode = $this->getSizeAttributeCode($attributeSet);
+        $id_atelier = $product->getData('id_atelier');
+        $simpleProducts = $this->getProductByAtelierId($id_atelier, Type::TYPE_SIMPLE);
+        $attributeValues = [];
+        $productIds = [];
+        $optionsFactory = $objectManager->create(Factory::class);
+        foreach ($simpleProducts as $simpleProduct) {
+
+            if ($simpleProduct->getData($sizeAttributeCode)) {
+                $attributeValues[] = [
+                    'label' => $this->getAttributeLabelByCode($sizeAttributeCode),
+                    'attribute_id' => $this->getAttributeIdByCode($sizeAttributeCode),
+                    'value_index' => $simpleProduct->getData($sizeAttributeCode),
+                ];
+                $productIds[] = $simpleProduct->getId();
+            }
+        }
+        $configurableAttributesData = [
+            [
+                'attribute_id' => $this->getAttributeIdByCode($sizeAttributeCode),
+                'code' => $this->getAttributeLabelByCode($sizeAttributeCode),
+                'label' => $this->getAttributeLabelByCode($sizeAttributeCode),
+                //'position' => '0',
+                'values' => $attributeValues,
+            ],
+        ];
+
+        if (count($productIds) > 0) {
+            $configurableOptions = $optionsFactory->create($configurableAttributesData);
+            $extensionConfigurableAttributes = $product->getExtensionAttributes();
+            $extensionConfigurableAttributes->setConfigurableProductOptions($configurableOptions);
+            $extensionConfigurableAttributes->setConfigurableProductLinks($productIds);
+            $product->setExtensionAttributes($extensionConfigurableAttributes);
+            $product->save();
+        }
+    }
+
+    /**
      * @param int $productId
+     * @param string $type
      * @return \Magento\Catalog\Model\ResourceModel\Product\Collection
      */
-    private function getProductByAtelierId($productId) {
+    private function getProductByAtelierId($productId, $type = Configurable::TYPE_CODE) {
 
         $collection = $this->collectionFactory->create();
         $collection->addAttributeToSelect('*');
         //identify column of id_atelier with id_atelier_key from ConfigEnv.php
+        $collection->addAttributeToFilter('type_id',['in'=> $type]);
         $collection->addAttributeToFilter('id_atelier',['in'=> $productId]);
         return $collection;
     }
@@ -428,7 +710,7 @@ class CronProductsCommand extends Command
     private function readCsvFile($csvPath) {
 
         $csv = new Csv();
-        $csv->setDelimiter(',');
+        $csv->setDelimiter($this->configEnv->getEnv('delimiter'));
         $csv->setEnclosure('"');
         $csv->setSheetIndex(0);
         $csvData = $csv->load($csvPath);
@@ -444,7 +726,6 @@ class CronProductsCommand extends Command
      * @param Product $productModel
      * @param Interceptor $productResource
      * @return void
-     * @throws \Exception
      */
     private function setProductAttributes($categories, $attributeColumns, $csvRow, Product $productModel, Interceptor $productResource) {
         foreach ($attributeColumns as $columnKey => $column) {
@@ -452,6 +733,12 @@ class CronProductsCommand extends Command
             if ($column['type'] == 2) {
                 //values are 1 or 2, 1 for text value 2 for select and other multiple type input values
                 $attrValue = $this->getAttributeValueId($column['code'], $csvRow[$columnKey]);
+                if($attrValue == null) {
+                    if ($csvRow[$columnKey] != null) {
+                        $this->addOptionToAttribute($column['code'], $csvRow[$columnKey]);
+                        $attrValue = $this->getAttributeValueId($column['code'], $csvRow[$columnKey]);
+                    }
+                }
             } else {
                 $attrValue = $csvRow[$columnKey];
             }
@@ -473,10 +760,10 @@ class CronProductsCommand extends Command
             }
             if (isset($csvRow[22])) {
                 if ($csvRow[22] == 1) {
-                    $productModel->setData('status', 2);
+                    $productModel->setStatus(Status::STATUS_ENABLED, 2);
                     $productResource->saveAttribute($productModel, 'status');
                 } elseif ($csvRow[22] == 0) {
-                    $productModel->setData('status', 1);
+                    $productModel->setStatus(Status::STATUS_DISABLED);
                     $productResource->saveAttribute($productModel, 'status');
                 }
             }
@@ -495,8 +782,9 @@ class CronProductsCommand extends Command
         if (isset($csvRow[14])) {
             //set name
             $productModel->setName($csvRow[14]);
+            $productModel->setData('name', $csvRow[14]);
             //$productModel->setPrice($csvRow[16]);
-            $productModel->save();
+            $productResource->save($productModel);
         }
 
         $price = 0;
@@ -505,6 +793,52 @@ class CronProductsCommand extends Command
         }
         if ($price < 0 || $price == '') {
             $price = 0;
+        }
+        $con = $this->resourceModel->getConnection();
+        $this->setPrice($productModel, $con, $price);
+    }
+
+    /**
+     * @param Product $product
+     * @param Interceptor $productResource
+     * @param Product $configProduct
+     * @throws \Exception
+     */
+    private function setSimpleProductAttributes($product, $productResource, $configProduct) {
+
+        if ($product->getName() != $configProduct->getName() && $configProduct->getName() != null) {
+            $product->setName($configProduct->getName());
+            $product->save();
+        }
+        $catIds = $product->getCategoryIds();
+        $configCatIds = $configProduct->getCategoryIds();
+        foreach ($configCatIds as $configCatId) {
+
+            if (!in_array($configCatId, $catIds)) {
+                $this->categoryLinkManagement->assignProductToCategories($product->getSku(),
+                    [$configCatId]);
+            }
+        }
+
+        $columns = $this->configEnv->getEnv('coloumns');
+        foreach ($columns as $column) {
+            if ($configProduct->getData($column['code']) != null) {
+                $product->setData($column['code'], $configProduct->getData($column['code']));
+                $productResource->saveAttribute($product, $column['code']);
+            }
+        }
+        if ($configProduct->getData('atelier_model_variant') != null) {
+            $product->setData('atelier_model_variant', $configProduct->getData('atelier_model_variant'));
+            $productResource->saveAttribute($product, 'atelier_model_variant');
+        }
+        if ($configProduct->getData('atelier_model_variant') != null) {
+            $product->setData('short_description', $configProduct->getData('short_description'));
+            $productResource->saveAttribute($product, 'short_description');
+        }
+
+        if ($configProduct->getStatus() != null) {
+            $product->setStatus($configProduct->getStatus());
+            $productResource->saveAttribute($product, 'status');
         }
     }
 
@@ -551,5 +885,138 @@ class CronProductsCommand extends Command
             $subcategories = $category->getChildren();
         }
         return $subcategories;
+    }
+
+    /**
+     * @param Product $product
+     * @param Mysql $con
+     * @param float $price
+     */
+    private function setPrice($product, $con, $price) {
+        $tablePrice = $this->resourceModel->getTable('catalog_product_entity_decimal');
+        if ($product->getSpecialPrice() == null) {
+            $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('price') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+            $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('special_price') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+            $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('cost') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+        } else {
+            $con->query("UPDATE ".$tablePrice." SET `value` = '".$price."' WHERE attribute_id = ".$this->getAttributeIdByCode('price')." AND entity_id = ".$product->getId());
+            $con->query("UPDATE ".$tablePrice." SET `value` = '".$price."' WHERE attribute_id = ".$this->getAttributeIdByCode('special_price')." AND entity_id = ".$product->getId());
+            $con->query("UPDATE ".$tablePrice." SET `value` = '".$price."' WHERE attribute_id = ".$this->getAttributeIdByCode('cost')." AND entity_id = ".$product->getId());
+        }
+    }
+
+    /**
+     * Add Option to attribute dropdown
+     *
+     * @param string $attributeCode
+     * @param string $value
+     * @return void
+     */
+    private function addOptionToAttribute($attributeCode, $value) {
+
+        $optionId = $this->getAttributeValueId($attributeCode, $value);
+        if ($optionId == null) {
+            $attribute = $this->attributeRepository->get($attributeCode);
+
+            $categorySetup = $this->categorySetupFactory->create();
+            $categorySetup->addAttributeOption(
+                [
+                    'attribute_id'  => $attribute->getAttributeId(),
+                    'order'         => [0],
+                    'value'         => [
+                        [
+                            0 => $value, // store_id => label
+                        ],
+                    ],
+                ]
+            );
+        }
+    }
+
+    /**
+     * Get Details of attribute sets and its size attribute
+     *
+     * @param array $csvRow
+     * @return int|null
+     */
+    private function getAttributeSetId($csvRow) {
+
+        $attributeSetId = null;
+        if (isset($csvRow[39])) {
+            $brand = strtolower($csvRow[2]);
+            $category = strtolower($csvRow[7]);
+            $sizeName = strtolower($csvRow[39]);
+            switch ($sizeName) {
+                case "uomo":
+                    if ($brand == "jacob cohen") {
+                        $attributeSetId = 21;
+                    } elseif ($category == 'pantalone') {
+                        $attributeSetId = 16;
+                    } else {
+                        $attributeSetId = 15;
+                    }
+                    break;
+                case "donna":
+                    $attributeSetId = 14;
+                    break;
+                case "americana":
+                    $attributeSetId = 12;
+                    break;
+                case "camicie estesa 37/50":
+                    $attributeSetId = 11;
+                    break;
+                case "scarpe inglesi":
+                    $attributeSetId = 10;
+                    break;
+                case "scarpe donna":
+                    $attributeSetId = 9;
+                    break;
+                case "cinture uomo":
+                    $attributeSetId = 22;
+                    break;
+            }
+        }
+
+        return $attributeSetId;
+    }
+
+    /**
+     * @param string $attributeSetId
+     * @return string|null
+     */
+    private function getSizeAttributeCode($attributeSetId) {
+
+        $attributeCode = null;
+        switch ($attributeSetId) {
+                case 21:
+                    $attributeCode = "jeans_size";
+                    break;
+                case 16:
+                    $attributeCode = "jeans_size";
+                    break;
+                case 15:
+                    $attributeCode = "size_clothes_men_top";
+                    break;
+                case 14:
+                    $attributeCode = "size_clothes";
+                    break;
+                case 12:
+                    $attributeCode = "size_letters";
+                    break;
+                case 11:
+                    $attributeCode = "size_shirts";
+                    break;
+                case 10:
+                    $attributeCode = "size_shoes_men";
+                    break;
+                case 9:
+                    $attributeCode = "size_shoes_women";
+                    break;
+                case 22:
+                    $attributeCode = "size_belt";
+                    break;
+            }
+
+        return $attributeCode;
     }
 }
