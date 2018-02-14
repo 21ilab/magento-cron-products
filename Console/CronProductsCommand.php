@@ -40,6 +40,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 class CronProductsCommand extends Command
 {
+    /*
+     *
+     */
 
     /**
      * @var string $path
@@ -195,14 +198,14 @@ class CronProductsCommand extends Command
     private function getCategoryId($categories, $csvRow) {
         $categoryId = null;
         $parent = null;
-        if ($parent == 'uomo') {
+        if (strtolower($csvRow[5]) == 'uomo') {
             $parent = 'men';
         } elseif (strtolower($csvRow[5]) == 'donna') {
             $parent = 'women';
         }
         if ($parent) {
             switch (strtolower($csvRow[7])) {
-                case 'camica':
+                case 'camicia':
                     $categoryId = $categories[$parent]['children']['clothes']['children']['shirts']['id'];
                     break;
                 case 'cappello':
@@ -236,7 +239,7 @@ class CronProductsCommand extends Command
                     $categoryId = $categories[$parent]['children']['accessories']['children']['gloves']['id'];
                     break;
                 case 'impermeabile':
-                    $categoryId = $categories[$parent]['children']['clothes']['children']['caots']['id'];
+                    $categoryId = $categories[$parent]['children']['clothes']['children']['coats']['id'];
                     break;
                 case 'maglieria':
                     $categoryId = $categories[$parent]['children']['clothes']['children']['knitwear']['id'];
@@ -263,20 +266,16 @@ class CronProductsCommand extends Command
                             break;
                     }
                     break;
-                case 'biancheria intima':
-                    switch(strtolower($csvRow[8])) {
-                        case 'calza':
-                            if ($parent == 'men') {
-                                $categoryId = $categories[$parent]['children']['accessories']['children']['perfumes']['id'];
-                            }
-                            break;
+                case 'calze':
+                    if ($parent == 'men') {
+                        $categoryId = $categories[$parent]['children']['accessories']['children']['socks']['id'];
                     }
                     break;
                 case 'borse':
                     switch(strtolower($csvRow[8])) {
                         case 'bauletto':
                             if ($parent == 'women') {
-                                $categoryId = $categories[$parent]['children']['accessories']['children']['perfumes']['id'];
+                                $categoryId = $categories[$parent]['children']['accessories']['children']['handbags']['id'];
                             }
                             break;
                         case 'borsone':
@@ -305,8 +304,8 @@ class CronProductsCommand extends Command
                             }
                             break;
                         case 'shopping':
-                            if ($parent == 'women') {
-                                $categoryId = $categories[$parent]['children']['accessories']['children']['hangbags']['id'];
+                            if ($parent == 'men') {
+                                $categoryId = $categories[$parent]['children']['accessories']['children']['bags']['id'];
                             }
                             break;
                         case 'tracolla':
@@ -374,7 +373,7 @@ class CronProductsCommand extends Command
                 if ($attrValue == null && trim($csvRow[$columnKey]) != "") {
                     $returnFlag = true;
                     //value doesn't exist in attribute send error output on terminal
-                    $output->writeln("Error: Attribute value{" . $csvRow[$columnKey] . "} code{" . $column['code'] . "} doesn't exist, row: " . ($csvKey+1));
+                    //$output->writeln("Error: Attribute value{" . $csvRow[$columnKey] . "} code{" . $column['code'] . "} doesn't exist, row: " . ($csvKey+1));
                 }
             }
         }
@@ -384,9 +383,8 @@ class CronProductsCommand extends Command
 
         if ($attributeSet == null) {
             $returnFlag = false;
-            $output->writeln("Error : Attribute set doesn't exits {".$csvRow[39]."}");
+            $output->writeln("Error : Attribute set doesn't exits {".$csvRow[44]."} row: ".($csvKey+1));
         }
-
         if ($this->getCategoryId($categories, $csvRow) == null) {
             $returnFlag = false;
             $output->writeln("Error: Category doesn't exist, row: " . ($csvKey+1));
@@ -434,7 +432,7 @@ class CronProductsCommand extends Command
      * get the user entered arguments and options and do the magic
      *
      * @param InputInterface $input
-     * @param OutputInterface $output
+     * @param OutputInterface $outputf
      * @return void
      */
     protected function execute(InputInterface $input, OutputInterface $output) {
@@ -484,6 +482,9 @@ class CronProductsCommand extends Command
                                 ->isInStock();
                             $productModel->save();
 
+                            $con = $this->resourceModel->getConnection();
+                            $con->query("DELETE FROM url_rewrite WHERE entity_type = 'product' AND entity_id = ".$productModel->getId());
+
                             $productResource = $productModel->getResource();
                             $this->setProductAttributes($categories, $columns, $csvRow, $productModel, $productResource);
                             $con = $this->resourceModel->getConnection();
@@ -520,6 +521,12 @@ class CronProductsCommand extends Command
                 if ($configProduct) {
                     $sizeAttributeCode = $this->getSizeAttributeCode($configProduct->getAttributeSetId());
                     $products = $this->getProductByAtelierId((string)$csvRow[0], Type::TYPE_SIMPLE);
+                    /**
+                     * add size if doesn't exist
+                     */
+                    if ($this->getAttributeValueId($sizeAttributeCode, $csvRow[1]) == null) {
+                        $this->addOptionToAttribute($sizeAttributeCode, $csvRow[1]);
+                    }
                     foreach ($products as $product) {
                         if ($product->getSku() == $configProduct->getSku()."_".$csvRow[1]) {
                             $productModel = $product;
@@ -576,6 +583,10 @@ class CronProductsCommand extends Command
                         //$productModel->setData('qty',$csvRow[2]);
                         //$productModel->setQty($csvRow[2]);
                         $productModel->save();
+
+
+                        $con = $this->resourceModel->getConnection();
+                        $con->query("DELETE FROM url_rewrite WHERE entity_type = 'product' AND entity_id = ".$productModel->getId());
 
                         $this->setSimpleProductAttributes($productModel, $productResource, $configProduct);
                         /**
@@ -711,6 +722,7 @@ class CronProductsCommand extends Command
 
         $csv = new Csv();
         $csv->setDelimiter($this->configEnv->getEnv('delimiter'));
+        //$csv->setDelimiter(",");
         $csv->setEnclosure('"');
         $csv->setSheetIndex(0);
         $csvData = $csv->load($csvPath);
@@ -942,10 +954,10 @@ class CronProductsCommand extends Command
     private function getAttributeSetId($csvRow) {
 
         $attributeSetId = null;
-        if (isset($csvRow[39])) {
+        if (isset($csvRow[44])) {
             $brand = strtolower($csvRow[2]);
             $category = strtolower($csvRow[7]);
-            $sizeName = strtolower($csvRow[39]);
+            $sizeName = strtolower($csvRow[44]);
             switch ($sizeName) {
                 case "uomo":
                     if ($brand == "jacob cohen") {
@@ -955,6 +967,9 @@ class CronProductsCommand extends Command
                     } else {
                         $attributeSetId = 15;
                     }
+                    break;
+                case "unica":
+                    $attributeSetId = 4;
                     break;
                 case "donna":
                     $attributeSetId = 14;
@@ -975,6 +990,9 @@ class CronProductsCommand extends Command
                     $attributeSetId = 22;
                     break;
             }
+            if ($brand == 'jacob cohen') {
+                $attributeSetId = 21;
+            }
         }
 
         return $attributeSetId;
@@ -988,6 +1006,9 @@ class CronProductsCommand extends Command
 
         $attributeCode = null;
         switch ($attributeSetId) {
+                case 4:
+                    $attributeCode = "size_clothes";
+                    break;
                 case 21:
                     $attributeCode = "jeans_size";
                     break;
