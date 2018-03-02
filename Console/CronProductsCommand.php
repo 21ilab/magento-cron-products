@@ -169,13 +169,15 @@ class CronProductsCommand extends Command
         $this->categorySetupFactory = $categorySetupFactory;
         $this->stockRegistry = $stockRegistry;
         $this->resourceModel = $resourceModel;
+
         $this->categoryCollectionFactory = $categoryCollectionFactory;
         $this->directoryList = $directoryList;
         $this->attributeMediaGalleryEntry = $attributeMediaGalleryEntry;
         $this->imageContent = $imageContent;
         $this->attributeMediaGalleryEntryInterfaceFactory = $attributeMediaGalleryEntryInterfaceFactory;
+
     }
-    
+
     public function upgrade(ModuleDataSetupInterface $setup, ModuleContextInterface $context )
     {
         $setup->startSetup();
@@ -237,16 +239,20 @@ class CronProductsCommand extends Command
         if ($parent) {
             switch (strtolower($csvRow[7])) {
                 case 'camicia':
-                    $categoryId = $categories[$parent]['children']['clothes']['children']['shirts']['id'];
+                  if ($parent == 'men')
+                      $categoryId = $categories[$parent]['children']['clothes']['children']['shirts']['id'];
+                  if ($parent == 'women')
+                      $categoryId = $categories[$parent]['children']['clothes']['children']['blouses']['id'];
                     break;
                 case 'cappello':
                     $categoryId = $categories[$parent]['children']['accessories']['children']['hats']['id'];
                     break;
-                case 'capotto':
-                    $categoryId = $categories[$parent]['children']['clothes']['children']['shirts']['id'];
+                case 'cappotto':
+                      $categoryId = $categories[$parent]['children']['clothes']['children']['coats']['id'];
                     break;
                 case 'cintura':
-                    $categoryId = $categories[$parent]['children']['accessories']['children']['belts']['id'];
+                    if ($parent == 'men')
+                      $categoryId = $categories[$parent]['children']['accessories']['children']['belts']['id'];
                     break;
                 case 'costume':
                     $categoryId = $categories[$parent]['children']['clothes']['children']['shirts']['id'];
@@ -314,6 +320,11 @@ class CronProductsCommand extends Command
                                 $categoryId = $categories[$parent]['children']['accessories']['children']['bags']['id'];
                             }
                             break;
+                        case 'borsa':
+                            if ($parent == 'women') {
+                                $categoryId = $categories[$parent]['children']['accessories']['children']['handbags']['id'];
+                            }
+                            break;
                         case 'cartella':
                             if ($parent == 'men') {
                                 $categoryId = $categories[$parent]['children']['accessories']['children']['bags']['id'];
@@ -332,6 +343,9 @@ class CronProductsCommand extends Command
                         case 'sacca':
                             if ($parent == 'men') {
                                 $categoryId = $categories[$parent]['children']['accessories']['children']['bags']['id'];
+                            }
+                            if ($parent == 'women') {
+                                $categoryId = $categories[$parent]['children']['accessories']['children']['handbags']['id'];
                             }
                             break;
                         case 'shopping':
@@ -375,6 +389,9 @@ class CronProductsCommand extends Command
                 case 'abito':
                     if ($parent == 'men') {
                         $categoryId = $categories[$parent]['children']['clothes']['children']['suits']['id'];
+                    }
+                    if ($parent == 'women') {
+                        $categoryId = $categories[$parent]['children']['clothes']['children']['dresses']['id'];
                     }
                     break;
             }
@@ -469,7 +486,7 @@ class CronProductsCommand extends Command
         $filename = basename($imageSrc);
         $completeSaveLoc = $mySaveDir.$filename;
         $completeSaveLoc2 = $mySaveDir2.$filename;
-        if(!file_exists($completeSaveLoc)){
+        if(!file_exists($completeSaveLoc) && file_exists($imageSrc)){
             try {
                 file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
                 file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
@@ -564,11 +581,10 @@ class CronProductsCommand extends Command
         /** @var $product Product */
         //$product = Bootstrap::getObjectManager()->create(Product::class);
         /** @var Factory $optionsFactory */
-        
+
         $objectManager = ObjectManager::getInstance();
         //$this->productModel = $objectManager->create(Product::class);
         $optionsFactory = $objectManager->create(Factory::class);
-
 
         $columns = $this->configEnv->getEnv('coloumns');
         $output->writeln('start');
@@ -583,43 +599,59 @@ class CronProductsCommand extends Command
                     if ($this->isProductOfThisEnv($csvRow)) {
                         //check product if it belongs to current environment
                         $products = $this->getProductByAtelierId((string)$csvRow[0], Configurable::TYPE_CODE);
+
                         if ($products->count() < 1) {
+
+                            print ' | new ' . $csvRow[15] . ' : ';
+
                             //Product doesn't exist create new product with ProductModel
+
+
                             $productModel = clone $this->productModel;
-                            $productModel->setName($csvRow[14])
+                          /*  $productModel->setName($csvRow[15])
                                 ->setStoreId(2)
                                 ->setTypeId(Configurable::TYPE_CODE)
                             ;
-
+                            */
                             /*
                              *
                              * set attribute_set for the new product
-                            */
+                              */
                             $productModel->setAttributeSetId($attributeSet)
                                 ->setSku($this->configEnv->getEnv('product_country') . '-' . $csvRow[0] . '-' . $csvRow[3] . ' ' . $csvRow[4])
                                 ->setStoreId(2)//->setWebsiteIds([2])
                                 //->setTaxClassId(2)
+                                ->setTypeId(Configurable::TYPE_CODE)
                                 ->setVisibility(Visibility::VISIBILITY_BOTH)
                                 ->setStatus(Status::STATUS_ENABLED)
                                 ->setData('id_atelier', $csvRow[0])
+                                ->setData('name', $csvRow[15])
                                 //->setStockData(['use_config_manage_stock' => 1, 'is_in_stock' => 1])
                             ;
-                            $productModel
-                                ->isInStock();
-                            $productModel->save();
 
-                            $con = $this->resourceModel->getConnection();
-                            $con->query("DELETE FROM url_rewrite WHERE entity_type = 'product' AND entity_id = ".$productModel->getId());
 
-                            $productResource = $productModel->getResource();
-                            $this->setProductAttributes($categories, $columns, $csvRow, $productModel, $productResource);
+                            $productModel->isInStock();
 
-                            $this->setWebsiteIds($productModel);
+                              $productModel->save();
+
+                              $con = $this->resourceModel->getConnection();
+                              $con->query("DELETE FROM url_rewrite WHERE entity_type = 'product' AND entity_id = ".$productModel->getId());
+
+                              $productResource = $productModel->getResource();
+                              $this->setProductAttributes($categories, $columns, $csvRow, $productModel, $productResource);
+
+                              $this->setWebsiteIds($productModel);
+
+                            print 'created: ' . $productModel->getId();
+                            print ' | ';
+
+
                         } else {
                             /** @var Product $product */
                             foreach ($products->getItems() as $product) {
                                 $product->reindex();
                                 if (strtolower($product->getTypeId()) != 'simple') {
+                                  print 'start read: ' . $product->getId();
                                     //$product->getData('category_ids');
                                     $productResource = $product->getResource();
                                     $this->setProductAttributes($categories, $columns, $csvRow, $product, $productResource);
@@ -627,19 +659,18 @@ class CronProductsCommand extends Command
                                     //$product->save();
                                     $this->setWebsiteIds($product);
                                 }
+
+                                print ' ok ';
+                                print ' | ';
                             }
                         }
                     }
                 }
             }
 
+              print ' -------------------- Disponibilita -------------------- ';
+
             //Read Disponibilita.txt
-            /**
-             * There is one small problem it is adding image to product
-             * but its not associating order of images
-             * and its not being able to set as base image and thumbnail etc
-             * so please do work on it
-             */
             $csvArraySimple = $this->readCsvFile($this->configEnv->getEnv('availability_csv'));
             foreach ($csvArraySimple as $key => $csvRow) {
                 $sizeString = $csvRow[1];
@@ -665,6 +696,7 @@ class CronProductsCommand extends Command
                         $this->addOptionToAttribute($sizeAttributeCode, $sizeString);
                     }
                     foreach ($products as $product) {
+
                         if ($product->getSku() == $configProduct->getSku()."_".$sizeString) {
                             $productModel = $product;
                             $productResource = $productModel->getResource();
@@ -703,6 +735,7 @@ class CronProductsCommand extends Command
                         $addVariationFlag = true;
                         $productModel = clone $this->productModel;
                         $productResource = $productModel->getResource();
+
                         $productModel->setTypeId(Type::TYPE_SIMPLE)
                             ->setAttributeSetId($configProduct->getAttributeSetId())
                             //->setWebsiteIds([1])
@@ -772,7 +805,7 @@ class CronProductsCommand extends Command
                     }
                 }
             }
-            
+
         } catch (Exception $e) {
             $output->writeln("Error: ".$e->getMessage());
         } catch (\PhpOffice\PhpSpreadsheet\Exception $e) {
@@ -876,7 +909,7 @@ class CronProductsCommand extends Command
             $attribute = $this->eavConfig->getAttribute('catalog_product', $attributeCode);
             $option = $attribute->getSource()->getOptionId($attributeValue);
         } catch (LocalizedException $e) {
-            print('Error: '.$e->getMessage());
+            print('Errore: '.$e->getMessage());
         }
         return $option;
     }
@@ -952,9 +985,13 @@ class CronProductsCommand extends Command
                 }
             }
         }
-        if (isset($csvRow[15])) {
-            $productModel->setData('short_description', (string)$csvRow[15]);
+        if (isset($csvRow[14])) {
+            $productModel->setData('short_description', (string)$csvRow[14]);
             $productResource->saveAttribute($productModel, 'short_description');
+
+            #$productModel->setData('description', (string)$csvRow[14]);
+            #$productResource->saveAttribute($productModel, 'description');
+
             //$productModel->setData('price', $csvRow[16]);
             //$productResource->saveAttribute($productModel, 'price');
         }
@@ -963,12 +1000,14 @@ class CronProductsCommand extends Command
             $this->categoryLinkManagement->assignProductToCategories($productModel->getSku(),
                 [$categoryId]);
         }
-        if (isset($csvRow[14])) {
+        if (isset($csvRow[15])) {
             //set name
-            $productModel->setName($csvRow[14]);
-            $productModel->setData('name', $csvRow[14]);
+            #$productModel->setName($csvRow[15]);
+            $productModel->setData('name', $csvRow[15]);
             //$productModel->setPrice($csvRow[16]);
-            $productResource->save($productModel);
+            $productResource->saveAttribute($productModel, 'name');
+
+
         }
 
         $price = 0;
