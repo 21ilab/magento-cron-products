@@ -237,6 +237,7 @@ class CronProductsCommand extends Command
             $parent = 'women';
         }
         if ($parent) {
+
             switch (strtolower($csvRow[7])) {
                 case 'camicia':
                   if ($parent == 'men')
@@ -608,11 +609,11 @@ class CronProductsCommand extends Command
 
 
                             $productModel = clone $this->productModel;
-                          /*  $productModel->setName($csvRow[15])
+                            $productModel->setName($csvRow[15])
                                 ->setStoreId(2)
                                 ->setTypeId(Configurable::TYPE_CODE)
                             ;
-                            */
+                
                             /*
                              *
                              * set attribute_set for the new product
@@ -623,7 +624,7 @@ class CronProductsCommand extends Command
                                 //->setTaxClassId(2)
                                 ->setTypeId(Configurable::TYPE_CODE)
                                 ->setVisibility(Visibility::VISIBILITY_BOTH)
-                                ->setStatus(Status::STATUS_ENABLED)
+                                ->setStatus(Status::STATUS_DISABLED)
                                 ->setData('id_atelier', $csvRow[0])
                                 ->setData('name', $csvRow[15])
                                 //->setStockData(['use_config_manage_stock' => 1, 'is_in_stock' => 1])
