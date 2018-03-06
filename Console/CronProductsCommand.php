@@ -487,7 +487,7 @@ class CronProductsCommand extends Command
         $filename = basename($imageSrc);
         $completeSaveLoc = $mySaveDir.$filename;
         $completeSaveLoc2 = $mySaveDir2.$filename;
-        if(!file_exists($completeSaveLoc) && file_exists($imageSrc)){
+        if(!file_exists($completeSaveLoc)){
             try {
                 file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
                 file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
@@ -537,15 +537,18 @@ class CronProductsCommand extends Command
                     array_push($mgEntries, $this->attributeMediaGalleryEntry);
                     @fclose($fileok);
                     */
+
                     $mediaEntry = $this->attributeMediaGalleryEntry;
                     $mediaEntry->setLabel($imageLabel);
+
                     $mediaEntry->setDisabled(false)
                         ->setFile(basename($completeSaveLoc))
                         ->setTypes(["image", "small_image", "thumbnail"])
                         ->setLabel($imageLabel)
                         ->setName($imageLabel)
-                        ->setMediaType('image')
-                        ->setPosition(0);
+                        ->setMediaType('image');
+                        //->setPosition(0);
+
                     $imageData = base64_encode($fileData);
                     $this->imageContent->setName($imageLabel);
                     $this->imageContent->setType($fileType);
@@ -553,7 +556,7 @@ class CronProductsCommand extends Command
                     $mediaEntry->setContent($this->imageContent);
                     $product->setMediaGalleryEntries([$mediaEntry]);
                     @fclose($fileok);
-                    var_dump($this->directoryList->getRoot());
+
                     $product->save();
                 }
             }
@@ -589,11 +592,15 @@ class CronProductsCommand extends Command
 
         $columns = $this->configEnv->getEnv('coloumns');
         $output->writeln('start');
+
         //Read Prodotti.txt
         $output->writeln($this->configEnv->getEnv('csv'));
         try {
             $categories = $this->getCategoriesArray();
             $csvArray = $this->readCsvFile($this->configEnv->getEnv('csv'));
+
+            if (count($csvArray[0][0]) > 0) {
+            $output->writeln(' -------------------- Produtti -------------------- ');
             foreach ($csvArray as $key => $csvRow) {
                 $attributeSet = $this->getAttributeSetId($csvRow);
                 if ($this->checkIfDataIsValid($categories, $columns, $csvRow, $key, $output)) {
@@ -603,7 +610,7 @@ class CronProductsCommand extends Command
 
                         if ($products->count() < 1) {
 
-                            print ' | new ' . $csvRow[15] . ' : ';
+                            $output->writeln( 'new: ' . $csvRow[15]);
 
                             //Product doesn't exist create new product with ProductModel
 
@@ -613,7 +620,7 @@ class CronProductsCommand extends Command
                                 ->setStoreId(2)
                                 ->setTypeId(Configurable::TYPE_CODE)
                             ;
-                
+
                             /*
                              *
                              * set attribute_set for the new product
@@ -643,8 +650,8 @@ class CronProductsCommand extends Command
 
                               $this->setWebsiteIds($productModel);
 
-                            print 'created: ' . $productModel->getId();
-                            print ' | ';
+                            $output->writeln('created: ' . $productModel->getId());
+
 
 
                         } else {
@@ -652,7 +659,7 @@ class CronProductsCommand extends Command
                             foreach ($products->getItems() as $product) {
                                 $product->reindex();
                                 if (strtolower($product->getTypeId()) != 'simple') {
-                                  print 'start read: ' . $product->getId();
+                                  $output->writeln('read: ' . $product->getId());
                                     //$product->getData('category_ids');
                                     $productResource = $product->getResource();
                                     $this->setProductAttributes($categories, $columns, $csvRow, $product, $productResource);
@@ -661,18 +668,19 @@ class CronProductsCommand extends Command
                                     $this->setWebsiteIds($product);
                                 }
 
-                                print ' ok ';
-                                print ' | ';
                             }
                         }
                     }
                 }
             }
+            }
 
-              print ' -------------------- Disponibilita -------------------- ';
 
             //Read Disponibilita.txt
             $csvArraySimple = $this->readCsvFile($this->configEnv->getEnv('availability_csv'));
+
+            if (count($csvArraySimple[0][0]) > 0) {
+            $output->writeln(' -------------------- Disponibilita -------------------- ');
             foreach ($csvArraySimple as $key => $csvRow) {
                 $sizeString = $csvRow[1];
                 if (!is_numeric(substr($csvRow[1], strlen($csvRow[1])-1, 1)) && is_numeric(substr($csvRow[1], strlen($csvRow[1])-3, 1))) {
@@ -790,21 +798,23 @@ class CronProductsCommand extends Command
                     $output->writeln("Error: No configurable product for id_atelier: ".$csvRow[0]);
                 }
             }
-
+            }
             //Import images
             $csvArrayImages = $this->readCsvFile($this->configEnv->getEnv('images_csv'));
 
+            if (count($csvArrayImages[0]) > 0) {
+            $output->writeln(' -------------------- Images -------------------- ');
             foreach ($csvArrayImages as $csvArrayImage) {
                 $imageSrc = $this->directoryList->getRoot().DIRECTORY_SEPARATOR."atelier".DIRECTORY_SEPARATOR."images".DIRECTORY_SEPARATOR.$csvArrayImage[1];
                 if(file_exists($imageSrc)) {
                     $products = $this->getProductByAtelierId($csvArrayImage[0]);
-                    var_dump($products->count());
                     foreach ($products as $product) {
                         if (strtolower($product->getTypeId()) == 'configurable') {
                             $this->addImageToproduct($imageSrc, $product, $csvArrayImage[2]);
                         }
                     }
                 }
+            }
             }
 
         } catch (Exception $e) {
