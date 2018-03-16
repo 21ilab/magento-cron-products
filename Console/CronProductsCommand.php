@@ -484,7 +484,7 @@ class CronProductsCommand extends Command
      * @param string $imageSrc
      * @param Product $product
      */
-    private function addImageToproduct($imageSrc, Product $product, $order) {
+    private function addImageToproduct($imageSrc, Product $product, $order, $lang) {
 
         $mySaveDir = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR;
         $mySaveDir2 = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR;
@@ -550,7 +550,8 @@ class CronProductsCommand extends Command
                         ->setTypes(["image", "small_image", "thumbnail"])
                         ->setLabel($imageLabel)
                         ->setName($imageLabel)
-                        ->setMediaType('image');
+                        ->setMediaType('image')
+                        ->setStoreId($lang);
                         //->setPosition(0);
 
                     $imageData = base64_encode($fileData);
@@ -607,6 +608,13 @@ class CronProductsCommand extends Command
 
           $nameFileProdotti = str_replace('[lang]', $language, $fileProdotti);
 
+          // Limit search when the lang is US
+          // They have same ID but it is different products
+          if ($lang_id == 1) {
+            $us_lang = 1;
+          } else {
+            $us_lang = null;
+          }
           if (file_exists($nameFileProdotti)) {
 
             try {
@@ -622,7 +630,7 @@ class CronProductsCommand extends Command
                     if ($this->checkIfDataIsValid($categories, $columns, $csvRow, $key, $output)) {
                         if ($this->isProductOfThisEnv($csvRow)) {
                             //check product if it belongs to current environment
-                            $products = $this->getProductByAtelierId((string)$csvRow[0], null, Configurable::TYPE_CODE);
+                            $products = $this->getProductByAtelierId((string)$csvRow[0], $us_lang, Configurable::TYPE_CODE);
 
                             $versionUE = null;
                             // case is Italian, save UE english version aswell
@@ -704,9 +712,13 @@ class CronProductsCommand extends Command
 
                 //Read Disponibilita.txt
                 $nameFileDisponibilita = str_replace('[lang]', $language, $fileDisponibilita);
-                $csvArraySimple = $this->readCsvFile($nameFileDisponibilita);
 
-                if (count($csvArraySimple[0][0]) > 0) {
+                if (file_exists($fileDisponibilita))
+                  $csvArraySimple = $this->readCsvFile($nameFileDisponibilita);
+                else
+                  $csvArraySimple = null;
+
+                if (!empty($csvArraySimple) && count($csvArraySimple[0][0]) > 0) {
                 $output->writeln(' -------------------- Disponibilita -------------------- ');
                 foreach ($csvArraySimple as $key => $csvRow) {
                     $sizeString = $csvRow[1];
@@ -836,11 +848,15 @@ class CronProductsCommand extends Command
 
                     $imageSrc = $this->directoryList->getRoot().DIRECTORY_SEPARATOR."atelier".DIRECTORY_SEPARATOR."images".DIRECTORY_SEPARATOR.$csvArrayImage[1];
                     if(file_exists($imageSrc)) {
-                        $products = $this->getProductByAtelierId($csvArrayImage[0], $lang_id);
+                        $products = $this->getProductByAtelierId($csvArrayImage[0], $us_lang);
                         foreach ($products as $product) {
                             if (strtolower($product->getTypeId()) == 'configurable') {
-                                $this->addImageToproduct($imageSrc, $product, $csvArrayImage[2]);
-                                $output->writeln($csvArrayImage[2]);
+
+                                //$con = $this->resourceModel->getConnection();
+                                //$con->query("DELETE FROM catalog_product_entity_varchar WHERE value = '".$imageSrc."' AND store = ".$lang_id." AND entity_id = ".$productModel->getId());
+
+                                $this->addImageToproduct($imageSrc, $product, $csvArrayImage[2], $lang_id);
+                                $output->writeln($imageSrc);
                             }
                         }
                     }
@@ -1087,7 +1103,10 @@ class CronProductsCommand extends Command
 
         $price = 0;
         if (isset($csvRow[16])) {
+           // remove currency symbol
             $price = $csvRow[16];
+            $price = str_replace('$', '', $price);
+            $price = str_replace('€', '', $price);
         }
         if ($price < 0 || $price == '') {
             $price = 0;
