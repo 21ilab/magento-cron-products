@@ -558,6 +558,7 @@ class CronProductsCommand extends Command
                     $this->imageContent->setName($imageLabel);
                     $this->imageContent->setType($fileType);
                     $this->imageContent->setBase64EncodedData($imageData);
+                    $this->imageContent->setStoreId($lang);
                     $mediaEntry->setContent($this->imageContent);
                     $product->setMediaGalleryEntries([$mediaEntry]);
                     @fclose($fileok);
