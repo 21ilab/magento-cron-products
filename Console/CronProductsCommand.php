@@ -558,7 +558,7 @@ class CronProductsCommand extends Command
                     $this->imageContent->setName($imageLabel);
                     $this->imageContent->setType($fileType);
                     $this->imageContent->setBase64EncodedData($imageData);
-                    $this->imageContent->setStoreId($lang);
+                    //$this->imageContent->setStoreId($lang);
                     $mediaEntry->setContent($this->imageContent);
                     $product->setMediaGalleryEntries([$mediaEntry]);
                     @fclose($fileok);
@@ -623,15 +623,17 @@ class CronProductsCommand extends Command
                 $csvArray = $this->readCsvFile($nameFileProdotti);
 
                 if (count($csvArray[0][0]) > 0) {
-                $output->writeln(' -------------------- Produtti -------------------- ');
+                $output->writeln(' -------------------- Prodotti -------------------- ');
                 foreach ($csvArray as $key => $csvRow) {
                     $attributeSet = $this->getAttributeSetId($csvRow);
-
+                    $sku = $language . '-' . $csvRow[0] . '-' . $csvRow[3] . ' ' . $csvRow[4];
 
                     if ($this->checkIfDataIsValid($categories, $columns, $csvRow, $key, $output)) {
                         if ($this->isProductOfThisEnv($csvRow)) {
                             //check product if it belongs to current environment
-                            $products = $this->getProductByAtelierId((string)$csvRow[0], $us_lang, Configurable::TYPE_CODE);
+                            //check if the product is from US lang (EU and IT are same products)
+                            //$products = $this->getProductByAtelierId((string)$csvRow[0], $us_lang, Configurable::TYPE_CODE);
+                            $products = $this->getProductBySku((string)$sku, $us_lang, Configurable::TYPE_CODE);
 
                             $versionUE = null;
                             // case is Italian, save UE english version aswell
@@ -659,7 +661,7 @@ class CronProductsCommand extends Command
                                  * set attribute_set for the new product
                                   */
                                 $productModel->setAttributeSetId($attributeSet)
-                                    ->setSku($language . '-' . $csvRow[0] . '-' . $csvRow[3] . ' ' . $csvRow[4])
+                                    ->setSku($sku)
                                     ->setStoreId($lang_id)
                                     //->setTaxClassId(2)
                                     ->setTypeId(Configurable::TYPE_CODE)
@@ -731,13 +733,15 @@ class CronProductsCommand extends Command
                     $productModel = null;
                     $addNewSimple = true;
                     $addVariationFlag = false;
-                    $products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id, Configurable::TYPE_CODE);
+                    //$products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id, Configurable::TYPE_CODE);
+                    $products = $this->getProductBySku((string)$sku, $lang_id, Configurable::TYPE_CODE);
                     foreach ($products as $product) {
                         $configProduct = $product;
                     }
                     if ($configProduct) {
                         $sizeAttributeCode = $this->getSizeAttributeCode($configProduct->getAttributeSetId());
-                        $products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id, Type::TYPE_SIMPLE);
+                        //$products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id, Type::TYPE_SIMPLE);
+                        $products = $this->getProductBySku((string)$sku, $lang_id, Type::TYPE_SIMPLE);
                         /**
                          * add size if doesn't exist
                          */
@@ -936,9 +940,11 @@ class CronProductsCommand extends Command
         $attributeSet = $product->getAttributeSetId();
         $sizeAttributeCode = $this->getSizeAttributeCode($attributeSet);
         $id_atelier = $product->getData('id_atelier');
+        $sku = $product->getData('sku');
         #$lang_id = $product->getStore()->getId();
 
-        $simpleProducts = $this->getProductByAtelierId($id_atelier, $lang_id, Type::TYPE_SIMPLE);
+        //$simpleProducts = $this->getProductByAtelierId($id_atelier, $lang_id, Type::TYPE_SIMPLE);
+        $simpleProducts = $this->getProductBySku($sku, $lang_id, Type::TYPE_SIMPLE);
         $attributeValues = [];
         $productIds = [];
         $optionsFactory = $objectManager->create(Factory::class);
@@ -975,6 +981,7 @@ class CronProductsCommand extends Command
 
     /**
      * @param int $productId
+     * @param string $lang
      * @param string $type
      * @return \Magento\Catalog\Model\ResourceModel\Product\Collection
      */
@@ -986,6 +993,23 @@ class CronProductsCommand extends Command
         $collection->addAttributeToFilter('type_id',['in'=> $type]);
         $collection->addAttributeToFilter('id_atelier',['in'=> $productId]);
         if ($lang_id != null) $collection->addStoreFilter($lang_id);
+        return $collection;
+    }
+
+    /**
+     * @param string Sku
+     * @param string $lang
+     * @param string $type
+     * @return \Magento\Catalog\Model\ResourceModel\Product\Collection
+     */
+    private function getProductBySku($sku, $lang_id = null, $type = Configurable::TYPE_CODE) {
+
+        $collection = $this->collectionFactory->create();
+        $collection->addAttributeToSelect('*');
+        //identify column of id_atelier with id_atelier_key from ConfigEnv.php
+        $collection->addAttributeToFilter('type_id',['in'=> $type]);
+        $collection->addAttributeToFilter('sku',['like'=> '%'.$sku.'%']);
+        //if ($lang_id != null) $collection->addStoreFilter($lang_id);
         return $collection;
     }
 
