@@ -616,6 +616,9 @@ class CronProductsCommand extends Command
           } else {
             $us_lang = null;
           }
+
+          $errorProducts = '';
+
           if (file_exists($nameFileProdotti)) {
 
             try {
@@ -626,14 +629,18 @@ class CronProductsCommand extends Command
                 $output->writeln(' -------------------- Prodotti -------------------- ');
                 foreach ($csvArray as $key => $csvRow) {
                     $attributeSet = $this->getAttributeSetId($csvRow);
-                    $sku = $language . '-' . $csvRow[0] . '-' . $csvRow[3] . ' ' . $csvRow[4];
+                    $sku = $language . '-' . $csvRow[0] . '-' . $csvRow[3] . $csvRow[4];
 
                     if ($this->checkIfDataIsValid($categories, $columns, $csvRow, $key, $output)) {
                         if ($this->isProductOfThisEnv($csvRow)) {
                             //check product if it belongs to current environment
                             //check if the product is from US lang (EU and IT are same products)
-                            //$products = $this->getProductByAtelierId((string)$csvRow[0], $us_lang, Configurable::TYPE_CODE);
-                            $products = $this->getProductBySku((string)$sku, $us_lang, Configurable::TYPE_CODE);
+                            //Configurable::TYPE_CODE
+                            #if ($language == 'IT')
+                            #$products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id);
+                            #else
+
+                            $products = $this->getProductBySku((string)$sku, $lang_id);
 
                             $versionUE = null;
                             // case is Italian, save UE english version aswell
@@ -642,106 +649,148 @@ class CronProductsCommand extends Command
                               $versionUE['short_description'] = $csvRow[27];
                             }
 
-
                             if ($products->count() < 1) {
+                              // if no exists, search for SIMPLE TYPE
+                              $products = $this->getProductBySku((string)$sku, $lang_id, Type::TYPE_SIMPLE);
+                            }
 
-                                $output->writeln( 'new: ' . $csvRow[15]);
-
-                                //Product doesn't exist create new product with ProductModel
+                            if ($csvRow[15] != '') {
 
 
-                                $productModel = clone $this->productModel;
-                                $productModel->setName($csvRow[15])
-                                    ->setStoreId(2)
-                                    ->setTypeId(Configurable::TYPE_CODE)
-                                ;
+                              if ($products->count() < 1) {
 
-                                /*
-                                 *
-                                 * set attribute_set for the new product
-                                  */
-                                $productModel->setAttributeSetId($attributeSet)
-                                    ->setSku($sku)
-                                    ->setStoreId($lang_id)
-                                    //->setTaxClassId(2)
-                                    ->setTypeId(Configurable::TYPE_CODE)
-                                    ->setVisibility(Visibility::VISIBILITY_BOTH)
-                                    ->setStatus(Status::STATUS_DISABLED)
-                                    ->setData('id_atelier', $csvRow[0])
-                                    ->setData('name', $csvRow[15])
-                                    //->setStockData(['use_config_manage_stock' => 1, 'is_in_stock' => 1])
-                                ;
+                                  $output->writeln( 'new: ' . $csvRow[15]);
+                                  #$output->writeln( 'sku: ' . $sku);
 
-                                $productModel->isInStock();
+                                  //Product doesn't exist create new product with ProductModel
 
-                                  $productModel->save();
+                                  $productByName = $this->getProductByName($csvRow[15], $lang_id);
 
-                                  $con = $this->resourceModel->getConnection();
-                                  $con->query("DELETE FROM url_rewrite WHERE entity_type = 'product' AND entity_id = ".$productModel->getId());
+                                  if ($productByName->count() < 1) {
 
-                                  $productResource = $productModel->getResource();
-                                  $this->setProductAttributes($categories, $columns, $csvRow, $productModel, $productResource);
+                                    $productModel = clone $this->productModel;
+                                    $productModel->setName($csvRow[15])
+                                        ->setStoreId(2)
+                                        ->setTypeId(Configurable::TYPE_CODE)
+                                    ;
 
-                                  $this->setWebsiteIds($productModel, $lang_id, $versionUE);
+                                    /*
+                                     *
+                                     * set attribute_set for the new product
+                                      */
+                                    $productModel->setAttributeSetId($attributeSet)
+                                        ->setSku($sku)
+                                        ->setStoreId($lang_id)
+                                        ->setTaxClassId(2)
+                                        ->setTypeId(Configurable::TYPE_CODE)
+                                        ->setVisibility(Visibility::VISIBILITY_BOTH)
+                                        ->setStatus(Status::STATUS_DISABLED)
+                                        ->setData('id_atelier', $csvRow[0])
+                                        ->setData('name', $csvRow[15])
+                                        //->setStockData(['use_config_manage_stock' => 1, 'is_in_stock' => 1])
+                                    ;
 
-                                $output->writeln('created: ' . $productModel->getId());
+                                    $productModel->isInStock();
+
+                                    $productModel->save();
+
+                                    $con = $this->resourceModel->getConnection();
+                                    $con->query("DELETE FROM url_rewrite WHERE entity_type = 'product' AND entity_id = ".$productModel->getId());
+
+                                    $productResource = $productModel->getResource();
+
+                                    $this->setProductAttributes($categories, $columns, $csvRow, $productModel, $productResource);
+
+                                    $this->setWebsiteIds($productModel, $lang_id, $versionUE);
+
+                                    $output->writeln('created: ' . $productModel->getSku());
+
+
+                                  } else {
+                                    $errorProducts .= '| sku: '.$sku.'  |';
+                                    $output->writeln(' ----> product with different sku: ' . $sku);
+                                  }
+
+                              } else {
+
+
+                                  /** @var Product $product */
+                                  foreach ($products->getItems() as $product) {
+                                      $product->reindex();
+                                      if (strtolower($product->getTypeId()) != 'simple') {
+                                        $output->writeln('read: ' . $product->getSku());
+                                          //$product->getData('category_ids');
+                                          $productResource = $product->getResource();
+
+                                          $this->setProductAttributes($categories, $columns, $csvRow, $product, $productResource, $lang_id);
+
+                                          #$this->addProductVariations($product, $objectManager, $lang_id);
+                                          //$product->save();
+
+                                        #  $this->setWebsiteIds($product, $lang_id, $versionUE);
+                                      }
+
+                                  }
+
+
+                              }
 
 
 
                             } else {
-
-
-                                /** @var Product $product */
-                                foreach ($products->getItems() as $product) {
-                                    $product->reindex();
-                                    if (strtolower($product->getTypeId()) != 'simple') {
-                                      $output->writeln('read: ' . $product->getId());
-                                        //$product->getData('category_ids');
-                                        $productResource = $product->getResource();
-                                        $this->setProductAttributes($categories, $columns, $csvRow, $product, $productResource);
-                                        $this->addProductVariations($product, $objectManager, $lang_id);
-                                        //$product->save();
-
-                                        $this->setWebsiteIds($product, $lang_id, $versionUE);
-                                    }
-
-                                }
+                              $output->writeln(' ----> product with no name: ' . $sku);
                             }
+
                         }
                     }
                 }
                 }
 
+                #if ($errorProducts != '')
+                #mail('oriana.potente@21ilab.com, davi.leichsenring@21ilab.com' , 'Error log Cenci' , $errorProducts );
 
                 //Read Disponibilita.txt
                 $nameFileDisponibilita = str_replace('[lang]', $language, $fileDisponibilita);
 
-                if (file_exists($fileDisponibilita))
+                #if (file_exists($fileDisponibilita))
                   $csvArraySimple = $this->readCsvFile($nameFileDisponibilita);
-                else
-                  $csvArraySimple = null;
+              #  else
+              #    $csvArraySimple = null;
 
                 if (!empty($csvArraySimple) && count($csvArraySimple[0][0]) > 0) {
                 $output->writeln(' -------------------- Disponibilita -------------------- ');
                 foreach ($csvArraySimple as $key => $csvRow) {
+                    $id = $csvRow[0];
+                    $unique_atelier[$id] = $id;
+
                     $sizeString = $csvRow[1];
                     if (!is_numeric(substr($csvRow[1], strlen($csvRow[1])-1, 1)) && is_numeric(substr($csvRow[1], strlen($csvRow[1])-3, 1))) {
                         //strange 1/2 encoding considered as two chars so replace it and add 0.5 and use it in logic below
-                        $sizeString = (substr($csvRow[1], strlen($csvRow[1])-3, strlen($csvRow[1])-2)+0.5);
+                        if (strpos($csvRow[1], 'X') || !strpos($csvRow[1], 'L') || !strpos($csvRow[1], 'M') || !strpos($csvRow[1], 'S') || !strpos($csvRow[1], 'UNI')) {
+                            $sizeString = $csvRow[1];
+                        } else {
+                            $sizeString = (substr($csvRow[1], strlen($csvRow[1])-3, strlen($csvRow[1])-2)+0.5);
+                        }
+
                     }
                     $configProduct = null;
                     $productModel = null;
                     $addNewSimple = true;
                     $addVariationFlag = false;
-                    //$products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id, Configurable::TYPE_CODE);
-                    $products = $this->getProductBySku((string)$sku, $lang_id, Configurable::TYPE_CODE);
+                    $products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id, Configurable::TYPE_CODE);
+                    #$products = $this->getProductBySku((string)$sku, $lang_id, Configurable::TYPE_CODE);
                     foreach ($products as $product) {
                         $configProduct = $product;
                     }
                     if ($configProduct) {
+
+                      $sku = $configProduct->getSku()."_".$sizeString;
+
                         $sizeAttributeCode = $this->getSizeAttributeCode($configProduct->getAttributeSetId());
-                        //$products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id, Type::TYPE_SIMPLE);
+                        #$products = $this->getProductByAtelierId((string)$csvRow[0], $lang_id, Type::TYPE_SIMPLE);
                         $products = $this->getProductBySku((string)$sku, $lang_id, Type::TYPE_SIMPLE);
+
+                        $output->writeln('read: ' . $sku);
                         /**
                          * add size if doesn't exist
                          */
@@ -750,13 +799,17 @@ class CronProductsCommand extends Command
                         }
                         foreach ($products as $product) {
 
-                            if ($product->getSku() == $configProduct->getSku()."_".$sizeString) {
+                            if ($product->getSku() == $sku) {
+
+                              $output->writeln(' -- simple: ' . $sizeString);
+
                                 $productModel = $product;
                                 $productResource = $productModel->getResource();
                                 $productModel->setData($sizeAttributeCode, $this->getAttributeValueId($sizeAttributeCode, $sizeString));
                                 $productResource->saveAttribute($productModel, $sizeAttributeCode);
                                 $addNewSimple = false;
                                 $addVariationFlag = true;
+
 
                                 /**
                                  * @var \Magento\CatalogInventory\Api\StockRegistryInterface
@@ -781,10 +834,13 @@ class CronProductsCommand extends Command
 
                                 $this->setSimpleProductAttributes($productModel, $productResource, $configProduct);
                                 $this->setWebsiteIds($productModel, $lang_id);
-                                $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getSpecialPrice());
+                                $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getSpecialPrice(), $lang_id);
+
+
                             }
                         }
                         if ($addNewSimple) {
+
                             $addVariationFlag = true;
                             $productModel = clone $this->productModel;
                             $productResource = $productModel->getResource();
@@ -805,7 +861,6 @@ class CronProductsCommand extends Command
                             //$productModel->setData('qty',$csvRow[2]);
                             //$productModel->setQty($csvRow[2]);
                             $productModel->save();
-
 
                             $con = $this->resourceModel->getConnection();
                             $con->query("DELETE FROM url_rewrite WHERE entity_type = 'product' AND entity_id = ".$productModel->getId());
@@ -833,19 +888,38 @@ class CronProductsCommand extends Command
                             $this->stockRegistry->updateStockItemBySku($productModel->getSku(), $productStockData);
 
                             $this->setWebsiteIds($productModel, $lang_id);
-                            $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getSpecialPrice());
+                            $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getSpecialPrice(), $lang_id);
+
                         }
-                        if ($addVariationFlag) {
-                            $this->addProductVariations($configProduct, $objectManager);
-                        }
+                        #if ($addVariationFlag) {
+                        #    $output->writeln(' -- variation ');
+                        #    $this->addProductVariations($configProduct, $objectManager, $sku);
+                        #}
                     } else {
                         $output->writeln("Error: No configurable product for id_atelier: ".$csvRow[0]);
                     }
                 }
+
+
+                foreach ($unique_atelier as $id_at) {
+                  $output->writeln("Variation:  ".$id_at);
+                  $products = $this->getProductByAtelierId((string)$id_at, null, Configurable::TYPE_CODE);
+
+                  foreach ($products as $product) {
+                      $configProduct = $product;
+                  }
+                  if ($configProduct) {
+                    $this->addProductVariations($configProduct, $objectManager);
+                  }
+
+
+                }
                 }
                 //Import images
-
-                $csvArrayImages = $this->readCsvFile($fileImages);
+                if (file_exists($fileImages))
+                  $csvArrayImages = $this->readCsvFile($fileImages);
+                else
+                  $csvArrayImages = null;
 
                 if (count($csvArrayImages[0]) > 0) {
                 $output->writeln(' -------------------- Images -------------------- ');
@@ -902,11 +976,11 @@ class CronProductsCommand extends Command
               if ($rt->rowCount() == 0) {
                 $con->query("INSERT INTO `".$tableTexts."` (`attribute_id`,`entity_id`,`store_id`, `value`) VALUES ('75', '".$product->getId()."', '3', '".$versionUE['description']."')");
                 $con->query("INSERT INTO `".$tableTexts."` (`attribute_id`,`entity_id`,`store_id`, `value`) VALUES ('76', '".$product->getId()."', '3', '".$versionUE['short_description']."')");
-                print ' new ent ';
+
               } else {
                 $con->query("UPDATE `".$tableTexts."` SET `value` = '".$versionUE['description']."' WHERE `attribute_id` = '75' AND `entity_id` = '".$product->getId()."' AND `store_id` = '3'");
                 $con->query("UPDATE `".$tableTexts."` SET `value` = '".$versionUE['short_description']."' WHERE `attribute_id` = '76' AND `entity_id` = '".$product->getId()."' AND `store_id` = '3'");
-                print "UPDATE `".$tableTexts."` SET `value` = '".$versionUE['short_description']."' WHERE `attribute_id` = '76' AND `entity_id` = '".$product->getId()."' AND `store_id` = '3'";
+
 
               }
 
@@ -936,19 +1010,25 @@ class CronProductsCommand extends Command
      * @return void
      * @throws \Exception
      */
-    private function addProductVariations($product, $objectManager, $lang_id = 3) {
+    private function addProductVariations($product, $objectManager) {
+
+      if ($product != null) {
         $attributeSet = $product->getAttributeSetId();
         $sizeAttributeCode = $this->getSizeAttributeCode($attributeSet);
         $id_atelier = $product->getData('id_atelier');
-        $sku = $product->getData('sku');
+        #$sku = $product->getData('sku');
         #$lang_id = $product->getStore()->getId();
+        }
 
-        //$simpleProducts = $this->getProductByAtelierId($id_atelier, $lang_id, Type::TYPE_SIMPLE);
-        $simpleProducts = $this->getProductBySku($sku, $lang_id, Type::TYPE_SIMPLE);
+        #$simpleProducts = $this->getProductBySku($sku, null, Type::TYPE_SIMPLE);
+
+        $simpleProducts = $this->getProductByAtelierId($id_atelier, null, Type::TYPE_SIMPLE);
+
         $attributeValues = [];
         $productIds = [];
         $optionsFactory = $objectManager->create(Factory::class);
-        foreach ($simpleProducts as $simpleProduct) {
+
+        foreach ($simpleProducts as $k=>$simpleProduct) {
 
             if ($simpleProduct->getData($sizeAttributeCode)) {
                 $attributeValues[] = [
@@ -956,9 +1036,10 @@ class CronProductsCommand extends Command
                     'attribute_id' => $this->getAttributeIdByCode($sizeAttributeCode),
                     'value_index' => $simpleProduct->getData($sizeAttributeCode),
                 ];
-                $productIds[] = $simpleProduct->getId();
+                $productIds[$simpleProduct->getId()] = $simpleProduct->getId();
             }
         }
+
         $configurableAttributesData = [
             [
                 'attribute_id' => $this->getAttributeIdByCode($sizeAttributeCode),
@@ -970,13 +1051,16 @@ class CronProductsCommand extends Command
         ];
 
         if (count($productIds) > 0) {
+
             $configurableOptions = $optionsFactory->create($configurableAttributesData);
             $extensionConfigurableAttributes = $product->getExtensionAttributes();
             $extensionConfigurableAttributes->setConfigurableProductOptions($configurableOptions);
             $extensionConfigurableAttributes->setConfigurableProductLinks($productIds);
             $product->setExtensionAttributes($extensionConfigurableAttributes);
+
             $product->save();
         }
+
     }
 
     /**
@@ -985,14 +1069,16 @@ class CronProductsCommand extends Command
      * @param string $type
      * @return \Magento\Catalog\Model\ResourceModel\Product\Collection
      */
-    private function getProductByAtelierId($productId, $lang_id = null, $type = Configurable::TYPE_CODE) {
+    private function getProductByAtelierId($productId, $lang_id = null, $type = null) {
 
         $collection = $this->collectionFactory->create();
         $collection->addAttributeToSelect('*');
         //identify column of id_atelier with id_atelier_key from ConfigEnv.php
+        if ($type != null)
         $collection->addAttributeToFilter('type_id',['in'=> $type]);
         $collection->addAttributeToFilter('id_atelier',['in'=> $productId]);
-        if ($lang_id != null) $collection->addStoreFilter($lang_id);
+        $collection->addStoreFilter($lang_id);
+
         return $collection;
     }
 
@@ -1002,16 +1088,42 @@ class CronProductsCommand extends Command
      * @param string $type
      * @return \Magento\Catalog\Model\ResourceModel\Product\Collection
      */
-    private function getProductBySku($sku, $lang_id = null, $type = Configurable::TYPE_CODE) {
+    private function getProductBySku($sku, $lang_id = null, $type = null) {
 
         $collection = $this->collectionFactory->create();
         $collection->addAttributeToSelect('*');
         //identify column of id_atelier with id_atelier_key from ConfigEnv.php
-        $collection->addAttributeToFilter('type_id',['in'=> $type]);
-        $collection->addAttributeToFilter('sku',['like'=> '%'.$sku.'%']);
+
+
+        $collection->addAttributeToFilter('sku',['like'=> ''.$sku.'']);
         //if ($lang_id != null) $collection->addStoreFilter($lang_id);
+
+        if ($type != null)
+        $collection->addAttributeToFilter('type_id',['in'=> $type]);
+
         return $collection;
     }
+
+    /**
+     * @param string Sku
+     * @param string $lang
+     * @param string $type
+     * @return \Magento\Catalog\Model\ResourceModel\Product\Collection
+     */
+    private function getProductByName($name, $lang_id = null) {
+
+        $collection = $this->collectionFactory->create();
+        $collection->addAttributeToSelect('*');
+        //identify column of id_atelier with id_atelier_key from ConfigEnv.php
+
+        $collection->addAttributeToFilter('name',['like'=> ''.$name.'']);
+        //if ($lang_id != null) $collection->addStoreFilter($lang_id);
+
+        #$collection->addAttributeToFilter('type_id',['in'=> $type]);
+
+        return $collection;
+    }
+
 
     /**
      * @param $attributeCode
@@ -1058,7 +1170,8 @@ class CronProductsCommand extends Command
      * @param Interceptor $productResource
      * @return void
      */
-    private function setProductAttributes($categories, $attributeColumns, $csvRow, Product $productModel, Interceptor $productResource) {
+    private function setProductAttributes($categories, $attributeColumns, $csvRow, Product $productModel, Interceptor $productResource, $lang_id = 0) {
+
         foreach ($attributeColumns as $columnKey => $column) {
             $attrValue = null;
             if ($column['type'] == 2) {
@@ -1080,27 +1193,42 @@ class CronProductsCommand extends Command
                 $productResource->saveAttribute($productModel, $column['code']);
             }
         }
+
         /* *
          * Special cases that cant be generalised
          * will be listed here with if and else statements
          * */
+
+
         if (count($csvRow) > 0) {
+
             if (isset($csvRow[3]) && isset($csvRow[4])) {
                 //atelier model varient ( atelier_model_variant )
                 $atelier_model_varient = $csvRow[3] . ' ' . $csvRow[4];
                 $productModel->setData('atelier_model_variant', $atelier_model_varient);
                 $productResource->saveAttribute($productModel, 'atelier_model_variant');
             }
+
+
             if (isset($csvRow[22])) {
-                if ($csvRow[22] == 1) {
-                    $productModel->setStatus(Status::STATUS_ENABLED, 2);
-                    $productResource->saveAttribute($productModel, 'status');
-                } elseif ($csvRow[22] == 0) {
-                    $productModel->setStatus(Status::STATUS_DISABLED);
-                    $productResource->saveAttribute($productModel, 'status');
+              $status = 'enable';
+
+                if ( ($csvRow[22] == 0 && $csvRow[48] == 1) || $csvRow[22] == 2) {
+                  $status = 'enable';
+                } else {
+                  $status = 'disable';
                 }
+
+                if ($status == 'enable') {
+                  $productModel->setStatus(Status::STATUS_ENABLED, 2);
+                } else {
+                  $productModel->setStatus(Status::STATUS_DISABLED);
+                }
+                $productResource->saveAttribute($productModel, 'status');
             }
+
         }
+
         if (isset($csvRow[14])) {
             $productModel->setData('short_description', (string)$csvRow[14]);
             $productResource->saveAttribute($productModel, 'short_description');
@@ -1118,13 +1246,32 @@ class CronProductsCommand extends Command
         }
         if (isset($csvRow[15])) {
             //set name
-            #$productModel->setName($csvRow[15]);
             $productModel->setData('name', $csvRow[15]);
-            //$productModel->setPrice($csvRow[16]);
             $productResource->saveAttribute($productModel, 'name');
+        }
 
+        //set pattern
+        if (isset($csvRow[12])) {
+          $attr = $productResource->getAttribute('pattern');
+          $pattern = $attr->getSource()->getOptionId($csvRow[12]);
+          $productModel->setData('pattern', $pattern);
+          $productResource->saveAttribute($productModel, 'pattern');
 
         }
+
+        //set colours
+        if (isset($csvRow[23])) {
+
+          $attr = $productResource->getAttribute('color');
+          $color = $attr->getSource()->getOptionId($csvRow[23]);
+
+          if ($color) {
+            $productModel->setData('color', $color);
+            $productResource->saveAttribute($productModel, 'color');
+          }
+
+        }
+
 
         $price = 0;
         if (isset($csvRow[16])) {
@@ -1136,8 +1283,25 @@ class CronProductsCommand extends Command
         if ($price < 0 || $price == '') {
             $price = 0;
         }
+
+
         $con = $this->resourceModel->getConnection();
-        $this->setPrice($productModel, $con, $price);
+        $this->setPrice($productModel, $con, $price, $lang_id);
+
+
+        #$productModel->setData('price',$price);
+        #$productResource->saveAttribute($productModel, 'price');
+
+        //$this->setTaxClassId(2);
+
+        if (isset($csvRow[18])) {
+          $weight = str_replace('gr','',$csvRow[18]);
+          $weight = intval($weight)/1000;
+          $productModel->setData('weight',$weight);
+          $productResource->saveAttribute($productModel, 'weight');
+        }
+
+
     }
 
     /**
@@ -1281,12 +1445,32 @@ class CronProductsCommand extends Command
      * @throws LocalizedException
      * @throws \Zend_Db_Adapter_Exception
      */
-    private function setPrice($product, $con, $price) {
+    private function setPrice($product, $con, $price, $lang_id) {
         $tablePrice = $this->resourceModel->getTable('catalog_product_entity_decimal');
+
         if ($product->getSpecialPrice() == null) {
-            $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('price') . "', '0', '" . $product->getId() . "', '" . $price . "')");
-            $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('special_price') . "', '0', '" . $product->getId() . "', '" . $price . "')");
-            $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('cost') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+        #  $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('price') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+        #  $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('cost') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+        #  $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('special_price') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+
+            $rt = $this->resourceModel->getConnection()->query("SELECT * FROM ".$tablePrice." WHERE `attribute_id` = ".$this->getAttributeIdByCode('price')." AND `entity_id` = '".$product->getId()."' AND store_id = 0");
+            if ($rt->rowCount() == 0)
+              $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('price') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+            else
+              $con->query("UPDATE ".$tablePrice." SET `value` = '".$price."' WHERE attribute_id = ".$this->getAttributeIdByCode('price')." AND entity_id = ".$product->getId());
+
+            $rt = $this->resourceModel->getConnection()->query("SELECT * FROM ".$tablePrice." WHERE `attribute_id` = ".$this->getAttributeIdByCode('special_price')." AND `entity_id` = '".$product->getId()."' AND store_id = 0");
+            if ($rt->rowCount() == 0)
+              $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('special_price') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+            else
+              $con->query("UPDATE ".$tablePrice." SET `value` = '".$price."' WHERE attribute_id = ".$this->getAttributeIdByCode('special_price')." AND entity_id = ".$product->getId());
+
+            $rt = $this->resourceModel->getConnection()->query("SELECT * FROM ".$tablePrice." WHERE `attribute_id` = ".$this->getAttributeIdByCode('cost')." AND `entity_id` = '".$product->getId()."' AND store_id = 0");
+            if ($rt->rowCount() == 0)
+              $con->query("INSERT INTO `" . $tablePrice . "` (`attribute_id`,`store_id`,`entity_id`,`value`) VALUES ('" . $this->getAttributeIdByCode('cost') . "', '0', '" . $product->getId() . "', '" . $price . "')");
+            else
+              $con->query("UPDATE ".$tablePrice." SET `value` = '".$price."' WHERE attribute_id = ".$this->getAttributeIdByCode('cost')." AND entity_id = ".$product->getId());
+
         } else {
             $con->query("UPDATE ".$tablePrice." SET `value` = '".$price."' WHERE attribute_id = ".$this->getAttributeIdByCode('price')." AND entity_id = ".$product->getId());
             $con->query("UPDATE ".$tablePrice." SET `value` = '".$price."' WHERE attribute_id = ".$this->getAttributeIdByCode('special_price')." AND entity_id = ".$product->getId());
@@ -1363,7 +1547,13 @@ class CronProductsCommand extends Command
                 case "scarpe donna":
                     $attributeSetId = 9;
                     break;
+                case "scarpe uomo":
+                    $attributeSetId = 10;
+                    break;
                 case "cinture uomo":
+                    $attributeSetId = 22;
+                    break;
+                case "cinture donna":
                     $attributeSetId = 22;
                     break;
             }
