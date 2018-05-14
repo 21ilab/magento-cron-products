@@ -9,6 +9,7 @@ namespace Twentyone\CronProducts\Console;
 
 use Magento\Catalog\Api\CategoryLinkManagementInterface;
 use Magento\Catalog\Api\Data\ProductAttributeMediaGalleryEntryInterfaceFactory;
+use \Magento\Catalog\Model\Product\Gallery\EntryFactory;
 use Magento\Catalog\Helper\Category;
 use Magento\Catalog\Model\Product;
 use Magento\Catalog\Model\Product\Attribute\Source\Status;
@@ -71,7 +72,9 @@ class CronProductsCommand extends Command
     /**
      * @var array
      */
-    private $languages = [2=>'IT', 3=>'EU', 1=>'US'];
+    #private $languages = [2=>'IT', 3=>'EU', 1=>'US'];
+    private $languages = [2=>'IT'];
+
     /**
      * @var array
      */
@@ -112,6 +115,10 @@ class CronProductsCommand extends Command
      * @var ProductAttributeMediaGalleryEntryInterfaceFactory
      */
     private $attributeMediaGalleryEntryInterfaceFactory;
+    /**
+     * @var GalleryEntryFactory
+     */
+    private $MediaGalleryEntry;
 
     /**
      * Inject CollectionFactory(products) so to query products of magento and filter
@@ -142,6 +149,7 @@ class CronProductsCommand extends Command
                                 Config $eavConfig,
                                 \Magento\Framework\Filesystem\DirectoryList $directoryList,
                                 ProductAttributeMediaGalleryEntryInterfaceFactory $attributeMediaGalleryEntryInterfaceFactory,
+                                EntryFactory $MediaGalleryEntry,
                                 \Magento\Catalog\Api\ProductAttributeRepositoryInterface $attributeRepository,
                                 \Magento\Catalog\Setup\CategorySetupFactory $categorySetupFactory,
                                 Category $categoryHelper,
@@ -177,6 +185,7 @@ class CronProductsCommand extends Command
         $this->categoryCollectionFactory = $categoryCollectionFactory;
         $this->directoryList = $directoryList;
         $this->attributeMediaGalleryEntry = $attributeMediaGalleryEntry;
+        $this->MediaGalleryEntry = $MediaGalleryEntry;
         $this->imageContent = $imageContent;
         $this->attributeMediaGalleryEntryInterfaceFactory = $attributeMediaGalleryEntryInterfaceFactory;
 
@@ -357,6 +366,9 @@ class CronProductsCommand extends Command
                             if ($parent == 'men') {
                                 $categoryId = $categories[$parent]['children']['accessories']['children']['bags']['id'];
                             }
+                            if ($parent == 'women') {
+                                $categoryId = $categories[$parent]['children']['accessories']['children']['handbags']['id'];
+                            }
                             break;
                         case 'tracolla':
                             if ($parent == 'women') {
@@ -484,7 +496,7 @@ class CronProductsCommand extends Command
      * @param string $imageSrc
      * @param Product $product
      */
-    private function addImageToproduct($imageSrc, Product $product, $order, $lang) {
+    private function addImageToproduct($imageSrc, Product $product, $order) {
 
         $mySaveDir = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR;
         $mySaveDir2 = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR;
@@ -521,59 +533,55 @@ class CronProductsCommand extends Command
                 if ($fileData) {
                     $imageLabel = explode('.', $filename);
                     $imageLabel = $imageLabel[0];
-                    /*
-                    $this->attributeMediaGalleryEntry->setData('name',$imageLabel);
-                    $this->attributeMediaGalleryEntry->setName($imageLabel);
-                    $this->attributeMediaGalleryEntry->setLabel($imageLabel);
-                    $this->attributeMediaGalleryEntry->setDisabled(false);
-                    $this->attributeMediaGalleryEntry->setFile($imageSrc);
-                    //          $mgEntry->setTypes(["image", "small_image", "thumbnail"]);
-                    $this->attributeMediaGalleryEntry->setTypes(["image", "small_image"]); //thumbnail etc
-                    $this->attributeMediaGalleryEntry->setStoreId(0);
-                    $this->attributeMediaGalleryEntry->setMediaType('image');
-                    $this->attributeMediaGalleryEntry->setPosition(0);
-                    $imageData = base64_encode($fileData);
-                    $this->imageContent->setName("name");
-                    $this->imageContent->setType($fileType);
-                    var_dump($this->imageContent->getName());
-                    $this->imageContent->setBase64EncodedData($imageData);
-                    $this->attributeMediaGalleryEntry->setContent($this->imageContent);
-                    array_push($mgEntries, $this->attributeMediaGalleryEntry);
-                    @fclose($fileok);
-                    */
 
+
+                    print 'a';
+/*
                     $mediaEntry = $this->attributeMediaGalleryEntry;
                     $mediaEntry->setLabel($imageLabel);
-
+                    print 'b';
                     $mediaEntry->setDisabled(false)
                         ->setFile(basename($completeSaveLoc))
                         ->setTypes(["image", "small_image", "thumbnail"])
                         ->setLabel($imageLabel)
                         ->setName($imageLabel)
-                        ->setMediaType('image')
-                        ->setStoreId($lang);
+                        ->setMediaType('image');
+                        #->setStoreId($lang);
                         //->setPosition(0);
-
+                        print 'c';
                     $imageData = base64_encode($fileData);
                     $this->imageContent->setName($imageLabel);
                     $this->imageContent->setType($fileType);
                     $this->imageContent->setBase64EncodedData($imageData);
-                    //$this->imageContent->setStoreId($lang);
+
+*/
+                    $mediaEntry = $this->MediaGalleryEntry->create();
+                    $mediaEntry->setDisabled(false)
+                        ->setFile(basename($completeSaveLoc))
+                        ->setTypes(["image", "small_image", "thumbnail"])
+                        ->setLabel($imageLabel)
+                        ->setName($imageLabel)
+                        ->setMediaType('image');
+
+
                     $mediaEntry->setContent($this->imageContent);
                     $product->setMediaGalleryEntries([$mediaEntry]);
+                    #$product->addImageToMediaGallery(basename($completeSaveLoc), ["image", "small_image", "thumbnail"], true, false);
                     @fclose($fileok);
-
+                    print 'd';
                     $product->save();
                 }
             }
-            $this->addProductVariations($product, ObjectManager::getInstance());
-
+            print 'e';
+            #$this->addProductVariations($product, ObjectManager::getInstance());
+            print 'f';
             //$product->setMediaGalleryEntries([$this->attributeMediaGalleryEntry]);
         }else {
+          print 'a2';
             $product->addImageToMediaGallery($completeSaveLoc,null, false, false);
             $product->save();
-
-            $this->addProductVariations($product, ObjectManager::getInstance());
+print 'g';
+            #$this->addProductVariations($product, ObjectManager::getInstance());
         }
 
     }
@@ -608,6 +616,7 @@ class CronProductsCommand extends Command
         foreach ($this->languages as $lang_id=>$language) {
 
           $nameFileProdotti = str_replace('[lang]', $language, $fileProdotti);
+          $nameFileProdotti = str_replace('[lang]', $language, $fileProdotti);
 
           // Limit search when the lang is US
           // They have same ID but it is different products
@@ -619,9 +628,12 @@ class CronProductsCommand extends Command
 
           $errorProducts = '';
 
-          if (file_exists($nameFileProdotti)) {
+
 
             try {
+
+                if (file_exists($nameFileProdotti)) {
+
                 $categories = $this->getCategoriesArray();
                 $csvArray = $this->readCsvFile($nameFileProdotti);
 
@@ -746,19 +758,21 @@ class CronProductsCommand extends Command
                 }
                 }
 
-                #if ($errorProducts != '')
-                #mail('oriana.potente@21ilab.com, davi.leichsenring@21ilab.com' , 'Error log Cenci' , $errorProducts );
-
+                if ($errorProducts != '')
+                mail('oriana.potente@21ilab.com, davi.leichsenring@21ilab.com' , 'Error log Cenci' , $errorProducts );
+                }
                 //Read Disponibilita.txt
-                $nameFileDisponibilita = str_replace('[lang]', $language, $fileDisponibilita);
+                $nameFileDisponibilita = str_replace('_[lang]', '', $fileDisponibilita);
 
-                #if (file_exists($fileDisponibilita))
+                if (file_exists($nameFileDisponibilita))
                   $csvArraySimple = $this->readCsvFile($nameFileDisponibilita);
-              #  else
-              #    $csvArraySimple = null;
+                else
+                  $csvArraySimple = null;
 
                 if (!empty($csvArraySimple) && count($csvArraySimple[0][0]) > 0) {
                 $output->writeln(' -------------------- Disponibilita -------------------- ');
+
+                $newArray = '';
                 foreach ($csvArraySimple as $key => $csvRow) {
                     $id = $csvRow[0];
                     $unique_atelier[$id] = $id;
@@ -801,11 +815,11 @@ class CronProductsCommand extends Command
 
                             if ($product->getSku() == $sku) {
 
-                              $output->writeln(' -- simple: ' . $sizeString);
+                                $output->writeln(' -- simple: ' .  $this->getAttributeValueId($sizeAttributeCode, $sizeString));
 
                                 $productModel = $product;
                                 $productResource = $productModel->getResource();
-                                $productModel->setData($sizeAttributeCode, $this->getAttributeValueId($sizeAttributeCode, $sizeString));
+                                $productModel->setData($sizeAttributeCode, $sizeString);
                                 $productResource->saveAttribute($productModel, $sizeAttributeCode);
                                 $addNewSimple = false;
                                 $addVariationFlag = true;
@@ -821,7 +835,7 @@ class CronProductsCommand extends Command
                                     ->setIsQtyDecimal(false)
                                 ;
 
-                                if ($csvRow[2] > 0) {
+                                if (intval($csvRow[2]) > 0) {
                                     $productStockData->setIsInStock(true);
                                 } else {
                                     $productStockData->setIsInStock(false);
@@ -841,6 +855,10 @@ class CronProductsCommand extends Command
                         }
                         if ($addNewSimple) {
 
+                            if ($configProduct->getSku() != $product->getSku()) {
+                                $output->writeln('-- old ' . $product->getSku());
+                            }
+
                             $addVariationFlag = true;
                             $productModel = clone $this->productModel;
                             $productResource = $productModel->getResource();
@@ -854,6 +872,7 @@ class CronProductsCommand extends Command
                                 ->setData('qty',$csvRow[2])
                                 ->setVisibility(Visibility::VISIBILITY_NOT_VISIBLE)
                                 ->setStatus($configProduct->getStatus())
+                                ->setManageStock(1)
                                 //->setStockData(['use_config_manage_stock' => 1, 'qty' => 100, 'is_qty_decimal' => 0, 'is_in_stock' => 1])
                             ;
                             $productModel->setData('id_atelier', $csvRow[0]);
@@ -921,6 +940,8 @@ class CronProductsCommand extends Command
                 else
                   $csvArrayImages = null;
 
+                $csvArrayImages = null;
+
                 if (count($csvArrayImages[0]) > 0) {
                 $output->writeln(' -------------------- Images -------------------- ');
                 foreach ($csvArrayImages as $csvArrayImage) {
@@ -931,10 +952,11 @@ class CronProductsCommand extends Command
                         foreach ($products as $product) {
                             if (strtolower($product->getTypeId()) == 'configurable') {
 
-                                //$con = $this->resourceModel->getConnection();
-                                //$con->query("DELETE FROM catalog_product_entity_varchar WHERE value = '".$imageSrc."' AND store = ".$lang_id." AND entity_id = ".$productModel->getId());
+                                $con = $this->resourceModel->getConnection();
+                                $sql = "DELETE FROM catalog_product_entity_media_gallery WHERE value LIKE '%".addslashes($csvArrayImage[1])."'";
+                                $con->query($sql);
 
-                                $this->addImageToproduct($imageSrc, $product, $csvArrayImage[2], $lang_id);
+                                $this->addImageToproduct($imageSrc, $product, $csvArrayImage[2]);
                                 $output->writeln($imageSrc);
                             }
                         }
@@ -951,7 +973,7 @@ class CronProductsCommand extends Command
             } catch (\Exception $e) {
                 $output->writeln("Error: ".$e->getMessage());
             }
-          }
+
         }
     }
 
@@ -1077,7 +1099,6 @@ class CronProductsCommand extends Command
         if ($type != null)
         $collection->addAttributeToFilter('type_id',['in'=> $type]);
         $collection->addAttributeToFilter('id_atelier',['in'=> $productId]);
-        $collection->addStoreFilter($lang_id);
 
         return $collection;
     }
@@ -1135,7 +1156,12 @@ class CronProductsCommand extends Command
         $option = null;
         try {
             $attribute = $this->eavConfig->getAttribute('catalog_product', $attributeCode);
-            $option = $attribute->getSource()->getOptionId($attributeValue);
+
+          #  $option = $attribute->getSource()->getOptionId($attributeValue);
+            $option = $attribute->getSource()->getAllOptions();
+            print_r($option);
+            exit();
+
         } catch (LocalizedException $e) {
             print('Errore: '.$e->getMessage());
         }
