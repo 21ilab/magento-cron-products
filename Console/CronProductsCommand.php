@@ -9,7 +9,6 @@ namespace Twentyone\CronProducts\Console;
 
 use Magento\Catalog\Api\CategoryLinkManagementInterface;
 use Magento\Catalog\Api\Data\ProductAttributeMediaGalleryEntryInterfaceFactory;
-use \Magento\Catalog\Model\Product\Gallery\EntryFactory;
 use Magento\Catalog\Helper\Category;
 use Magento\Catalog\Model\Product;
 use Magento\Catalog\Model\Product\Attribute\Source\Status;
@@ -115,10 +114,6 @@ class CronProductsCommand extends Command
      * @var ProductAttributeMediaGalleryEntryInterfaceFactory
      */
     private $attributeMediaGalleryEntryInterfaceFactory;
-    /**
-     * @var GalleryEntryFactory
-     */
-    private $MediaGalleryEntry;
 
     /**
      * Inject CollectionFactory(products) so to query products of magento and filter
@@ -149,7 +144,6 @@ class CronProductsCommand extends Command
                                 Config $eavConfig,
                                 \Magento\Framework\Filesystem\DirectoryList $directoryList,
                                 ProductAttributeMediaGalleryEntryInterfaceFactory $attributeMediaGalleryEntryInterfaceFactory,
-                                EntryFactory $MediaGalleryEntry,
                                 \Magento\Catalog\Api\ProductAttributeRepositoryInterface $attributeRepository,
                                 \Magento\Catalog\Setup\CategorySetupFactory $categorySetupFactory,
                                 Category $categoryHelper,
@@ -185,7 +179,6 @@ class CronProductsCommand extends Command
         $this->categoryCollectionFactory = $categoryCollectionFactory;
         $this->directoryList = $directoryList;
         $this->attributeMediaGalleryEntry = $attributeMediaGalleryEntry;
-        $this->MediaGalleryEntry = $MediaGalleryEntry;
         $this->imageContent = $imageContent;
         $this->attributeMediaGalleryEntryInterfaceFactory = $attributeMediaGalleryEntryInterfaceFactory;
 
@@ -323,6 +316,7 @@ class CronProductsCommand extends Command
                     }
                     break;
                 case 'borse':
+                case 'borsa':
                     switch(strtolower($csvRow[8])) {
                         case 'bauletto':
                             if ($parent == 'women') {
@@ -335,6 +329,7 @@ class CronProductsCommand extends Command
                             }
                             break;
                         case 'borsa':
+                        case 'borsa borsa':
                             if ($parent == 'women') {
                                 $categoryId = $categories[$parent]['children']['accessories']['children']['handbags']['id'];
                             }
@@ -363,6 +358,7 @@ class CronProductsCommand extends Command
                             }
                             break;
                         case 'shopping':
+                        case 'borsa shopping':
                             if ($parent == 'men') {
                                 $categoryId = $categories[$parent]['children']['accessories']['children']['bags']['id'];
                             }
@@ -371,6 +367,7 @@ class CronProductsCommand extends Command
                             }
                             break;
                         case 'tracolla':
+                        case 'borsa tracolla':
                             if ($parent == 'women') {
                                 $categoryId = $categories[$parent]['children']['accessories']['children']['handbags']['id'];
                             }
@@ -386,6 +383,7 @@ class CronProductsCommand extends Command
                             }
                             break;
                         case 'zaino':
+                        case 'borsa zaino':
                             if ($parent == 'men') {
                                 $categoryId = $categories[$parent]['children']['accessories']['children']['bags']['id'];
                             }
@@ -496,95 +494,79 @@ class CronProductsCommand extends Command
      * @param string $imageSrc
      * @param Product $product
      */
-    private function addImageToproduct($imageSrc, Product $product, $order) {
+     private function addImageToproduct($imageSrc, Product $product, $order) {
+       $mySaveDir = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR;
+       $mySaveDir2 = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR;
+       $filename = basename($imageSrc);
+       $completeSaveLoc = $mySaveDir.$filename;
+       $completeSaveLoc2 = $mySaveDir2.$filename;
+       if(!file_exists($completeSaveLoc)){
+           try {
+               file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
+               file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
+           }catch (Exception $e){
+           }
+       } else {
+           $i = 1;
+           $completeSaveLoc = $mySaveDir.$i."_".$filename;
+           $completeSaveLoc2 = $mySaveDir2.$i."_".$filename;
+           while (file_exists($completeSaveLoc)) {
+               $i++;
+               $completeSaveLoc = $mySaveDir.$i."_".$filename;
+               $completeSaveLoc2 = $mySaveDir2.$i."_".$filename;
+           }
+           file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
+           file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
+       }
+       if ($order == 0) {
+          print 'saving ..';
 
-        $mySaveDir = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR;
-        $mySaveDir2 = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR;
-        $filename = basename($imageSrc);
-        $completeSaveLoc = $mySaveDir.$filename;
-        $completeSaveLoc2 = $mySaveDir2.$filename;
-        if(!file_exists($completeSaveLoc)){
-            try {
-                file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
-                file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
-            }catch (Exception $e){
-
-            }
-        } else {
-            $i = 1;
-            $completeSaveLoc = $mySaveDir.$i."_".$filename;
-            $completeSaveLoc2 = $mySaveDir2.$i."_".$filename;
-            while (file_exists($completeSaveLoc)) {
-                $i++;
-                $completeSaveLoc = $mySaveDir.$i."_".$filename;
-                $completeSaveLoc2 = $mySaveDir2.$i."_".$filename;
-            }
-            file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
-            file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
-        }
-
-        if ($order == 0) {
-            $mgEntries = [];
-            $fileok = @fopen($imageSrc, "r");
-
-            if ($fileok) {
-                $fileData = file_get_contents($completeSaveLoc);
-                $fileType = mime_content_type($completeSaveLoc);
-                if ($fileData) {
-                    $imageLabel = explode('.', $filename);
-                    $imageLabel = $imageLabel[0];
+          $imageLabel = explode('.', $filename);
+          $imageLabel = $imageLabel[0];
 
 
-                    print 'a';
-/*
-                    $mediaEntry = $this->attributeMediaGalleryEntry;
-                    $mediaEntry->setLabel($imageLabel);
-                    print 'b';
-                    $mediaEntry->setDisabled(false)
-                        ->setFile(basename($completeSaveLoc))
-                        ->setTypes(["image", "small_image", "thumbnail"])
-                        ->setLabel($imageLabel)
-                        ->setName($imageLabel)
-                        ->setMediaType('image');
-                        #->setStoreId($lang);
-                        //->setPosition(0);
-                        print 'c';
-                    $imageData = base64_encode($fileData);
-                    $this->imageContent->setName($imageLabel);
-                    $this->imageContent->setType($fileType);
-                    $this->imageContent->setBase64EncodedData($imageData);
+          $filename = $completeSaveLoc;
+          $handle = fopen($filename, "r");
+          $data = fread($handle, filesize($filename));
+          $base64 = base64_encode($data);
 
-*/
-                    $mediaEntry = $this->MediaGalleryEntry->create();
-                    $mediaEntry->setDisabled(false)
-                        ->setFile(basename($completeSaveLoc))
-                        ->setTypes(["image", "small_image", "thumbnail"])
-                        ->setLabel($imageLabel)
-                        ->setName($imageLabel)
-                        ->setMediaType('image');
+          $mediaGallery = $product->convertToMediaGalleryInterface(array(
+            array(
+                "media_type"    => "image",
+                "label"         => $imageLabel,
+                "position"      => 1,
+                "disabled"      => false,
+                "types"         => array(
+                    "image",
+                    "small_image",
+                    "thumbnail"
+                ),
+                "content"       => array(
+                    "base64_encoded_data"   => $base64,
+                    "type"                  => "image/png",
+                    "name"                  => basename($completeSaveLoc)
+                )
+            )
+        ));
+          $product->setMediaGalleryEntries($mediaGallery);
+
+          $product->addImageToMediaGallery($completeSaveLoc, null, true, false);
+
+          $product->save();
+
+          print 'done   ';
 
 
-                    $mediaEntry->setContent($this->imageContent);
-                    $product->setMediaGalleryEntries([$mediaEntry]);
-                    #$product->addImageToMediaGallery(basename($completeSaveLoc), ["image", "small_image", "thumbnail"], true, false);
-                    @fclose($fileok);
-                    print 'd';
-                    $product->save();
-                }
-            }
-            print 'e';
-            #$this->addProductVariations($product, ObjectManager::getInstance());
-            print 'f';
-            //$product->setMediaGalleryEntries([$this->attributeMediaGalleryEntry]);
-        }else {
-          print 'a2';
-            $product->addImageToMediaGallery($completeSaveLoc,null, false, false);
-            $product->save();
-print 'g';
-            #$this->addProductVariations($product, ObjectManager::getInstance());
-        }
 
-    }
+
+
+       }else {
+         print 'not saving ...?';
+          #$product->addImageToMediaGallery($completeSaveLoc, null, false, false);
+
+          print 'done : ';
+       }
+   }
 
     /**
      * This function is executed after the console command is types in terminal
@@ -616,7 +598,7 @@ print 'g';
         foreach ($this->languages as $lang_id=>$language) {
 
           $nameFileProdotti = str_replace('[lang]', $language, $fileProdotti);
-          $nameFileProdotti = str_replace('[lang]', $language, $fileProdotti);
+
 
           // Limit search when the lang is US
           // They have same ID but it is different products
@@ -638,7 +620,7 @@ print 'g';
                 $csvArray = $this->readCsvFile($nameFileProdotti);
 
                 if (count($csvArray[0][0]) > 0) {
-                $output->writeln(' -------------------- Prodotti -------------------- ');
+$output->writeln(' -------------------- Prodotti -------------------- ');
                 foreach ($csvArray as $key => $csvRow) {
                     $attributeSet = $this->getAttributeSetId($csvRow);
                     $sku = $language . '-' . $csvRow[0] . '-' . $csvRow[3] . $csvRow[4];
@@ -667,7 +649,6 @@ print 'g';
                             }
 
                             if ($csvRow[15] != '') {
-
 
                               if ($products->count() < 1) {
 
@@ -699,6 +680,8 @@ print 'g';
                                         ->setStatus(Status::STATUS_DISABLED)
                                         ->setData('id_atelier', $csvRow[0])
                                         ->setData('name', $csvRow[15])
+                                        ->setData('meta_title', $csvRow[30])
+                                        ->setData('meta_description', $csvRow[31])
                                         //->setStockData(['use_config_manage_stock' => 1, 'is_in_stock' => 1])
                                     ;
 
@@ -727,17 +710,29 @@ print 'g';
 
 
                                   /** @var Product $product */
+
+
+
                                   foreach ($products->getItems() as $product) {
                                       $product->reindex();
+
+
                                       if (strtolower($product->getTypeId()) != 'simple') {
-                                        $output->writeln('read: ' . $product->getSku());
+                                        $output->writeln('read: ' . $sku . ' - ' . $product->getData('meta_title'));
+
                                           //$product->getData('category_ids');
                                           $productResource = $product->getResource();
+
+                                          $product
+                                          ->setStoreId($lang_id)
+                                          ->setData('meta_title', $csvRow[30])
+                                          ->setData('meta_description', $csvRow[31]);
+                                          $product->save();
 
                                           $this->setProductAttributes($categories, $columns, $csvRow, $product, $productResource, $lang_id);
 
                                           #$this->addProductVariations($product, $objectManager, $lang_id);
-                                          //$product->save();
+
 
                                         #  $this->setWebsiteIds($product, $lang_id, $versionUE);
                                       }
@@ -770,9 +765,7 @@ print 'g';
                   $csvArraySimple = null;
 
                 if (!empty($csvArraySimple) && count($csvArraySimple[0][0]) > 0) {
-                $output->writeln(' -------------------- Disponibilita -------------------- ');
-
-                $newArray = '';
+$output->writeln(' -------------------- Disponibilita -------------------- ');
                 foreach ($csvArraySimple as $key => $csvRow) {
                     $id = $csvRow[0];
                     $unique_atelier[$id] = $id;
@@ -796,6 +789,7 @@ print 'g';
                     foreach ($products as $product) {
                         $configProduct = $product;
                     }
+
                     if ($configProduct) {
 
                       $sku = $configProduct->getSku()."_".$sizeString;
@@ -815,11 +809,11 @@ print 'g';
 
                             if ($product->getSku() == $sku) {
 
-                                $output->writeln(' -- simple: ' .  $this->getAttributeValueId($sizeAttributeCode, $sizeString));
+                              $output->writeln(' -- simple: ' . $sizeString);
 
                                 $productModel = $product;
                                 $productResource = $productModel->getResource();
-                                $productModel->setData($sizeAttributeCode, $sizeString);
+                                $productModel->setData($sizeAttributeCode, $this->getAttributeValueId($sizeAttributeCode, $sizeString));
                                 $productResource->saveAttribute($productModel, $sizeAttributeCode);
                                 $addNewSimple = false;
                                 $addVariationFlag = true;
@@ -846,7 +840,9 @@ print 'g';
                                 ;
                                 $this->stockRegistry->updateStockItemBySku($productModel->getSku(), $productStockData);
 
-                                $this->setSimpleProductAttributes($productModel, $productResource, $configProduct);
+                                $output->writeln(' -- set attr ');
+                                $this->setSimpleProductAttributes($productModel, $productResource, $configProduct, $output);
+                                $output->writeln(' -- done attr ');
                                 $this->setWebsiteIds($productModel, $lang_id);
                                 $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getSpecialPrice(), $lang_id);
 
@@ -854,10 +850,6 @@ print 'g';
                             }
                         }
                         if ($addNewSimple) {
-
-                            if ($configProduct->getSku() != $product->getSku()) {
-                                $output->writeln('-- old ' . $product->getSku());
-                            }
 
                             $addVariationFlag = true;
                             $productModel = clone $this->productModel;
@@ -884,7 +876,7 @@ print 'g';
                             $con = $this->resourceModel->getConnection();
                             $con->query("DELETE FROM url_rewrite WHERE entity_type = 'product' AND entity_id = ".$productModel->getId());
 
-                            $this->setSimpleProductAttributes($productModel, $productResource, $configProduct);
+                            $this->setSimpleProductAttributes($productModel, $productResource, $configProduct, $output);
                             /**
                              * @var \Magento\CatalogInventory\Api\StockRegistryInterface
                              */
@@ -910,10 +902,10 @@ print 'g';
                             $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getSpecialPrice(), $lang_id);
 
                         }
-                        #if ($addVariationFlag) {
-                        #    $output->writeln(' -- variation ');
-                        #    $this->addProductVariations($configProduct, $objectManager, $sku);
-                        #}
+                        if ($addVariationFlag) {
+                            $output->writeln(' -- variation ');
+                            $this->addProductVariations($configProduct, $objectManager, $sku);
+                        }
                     } else {
                         $output->writeln("Error: No configurable product for id_atelier: ".$csvRow[0]);
                     }
@@ -940,7 +932,6 @@ print 'g';
                 else
                   $csvArrayImages = null;
 
-                $csvArrayImages = null;
 
                 if (count($csvArrayImages[0]) > 0) {
                 $output->writeln(' -------------------- Images -------------------- ');
@@ -952,12 +943,11 @@ print 'g';
                         foreach ($products as $product) {
                             if (strtolower($product->getTypeId()) == 'configurable') {
 
-                                $con = $this->resourceModel->getConnection();
-                                $sql = "DELETE FROM catalog_product_entity_media_gallery WHERE value LIKE '%".addslashes($csvArrayImage[1])."'";
-                                $con->query($sql);
+                                //$con = $this->resourceModel->getConnection();
+                                //$con->query("DELETE FROM catalog_product_entity_varchar WHERE value = '".$imageSrc."' AND store = ".$lang_id." AND entity_id = ".$productModel->getId());
 
                                 $this->addImageToproduct($imageSrc, $product, $csvArrayImage[2]);
-                                $output->writeln($imageSrc);
+                                $output->writeln($csvArrayImage[1]);
                             }
                         }
                     }
@@ -1156,12 +1146,7 @@ print 'g';
         $option = null;
         try {
             $attribute = $this->eavConfig->getAttribute('catalog_product', $attributeCode);
-
-          #  $option = $attribute->getSource()->getOptionId($attributeValue);
-            $option = $attribute->getSource()->getAllOptions();
-            print_r($option);
-            exit();
-
+            $option = $attribute->getSource()->getOptionId($attributeValue);
         } catch (LocalizedException $e) {
             print('Errore: '.$e->getMessage());
         }
@@ -1259,12 +1244,20 @@ print 'g';
             $productModel->setData('short_description', (string)$csvRow[14]);
             $productResource->saveAttribute($productModel, 'short_description');
 
-            #$productModel->setData('description', (string)$csvRow[14]);
-            #$productResource->saveAttribute($productModel, 'description');
 
-            //$productModel->setData('price', $csvRow[16]);
-            //$productResource->saveAttribute($productModel, 'price');
         }
+
+        if (isset($csvRow[30])) {
+          $productModel->setData('meta_title', (string)$csvRow[30]);
+          $productResource->saveAttribute($productModel, 'meta_title');
+
+        }
+        if (isset($csvRow[31])) {
+          $productModel->setData('meta_description', (string)$csvRow[31]);
+          $productResource->saveAttribute($productModel, 'meta_description');
+
+        }
+
         $categoryId = $this->getCategoryId($categories, $csvRow);
         if ($categoryId) {
             $this->categoryLinkManagement->assignProductToCategories($productModel->getSku(),
@@ -1315,10 +1308,6 @@ print 'g';
         $this->setPrice($productModel, $con, $price, $lang_id);
 
 
-        #$productModel->setData('price',$price);
-        #$productResource->saveAttribute($productModel, 'price');
-
-        //$this->setTaxClassId(2);
 
         if (isset($csvRow[18])) {
           $weight = str_replace('gr','',$csvRow[18]);
@@ -1326,6 +1315,8 @@ print 'g';
           $productModel->setData('weight',$weight);
           $productResource->saveAttribute($productModel, 'weight');
         }
+
+        $productModel->save();
 
 
     }
@@ -1336,31 +1327,44 @@ print 'g';
      * @param Product $configProduct
      * @throws \Exception
      */
-    private function setSimpleProductAttributes($product, $productResource, $configProduct) {
+    private function setSimpleProductAttributes($product, $productResource, $configProduct, OutputInterface $output) {
 
         if ($product->getName() != $configProduct->getName() && $configProduct->getName() != null) {
             $product->setName($configProduct->getName());
             $product->save();
         }
+
+
         $catIds = $product->getCategoryIds();
         $configCatIds = $configProduct->getCategoryIds();
+
+
         foreach ($configCatIds as $configCatId) {
+
+            $output->writeln('-- cat:');
+            print_r( $configCatId);
 
             if (!in_array($configCatId, $catIds)) {
                 $this->categoryLinkManagement->assignProductToCategories($product->getSku(),
                     [$configCatId]);
+
             }
+
+
         }
 
         $columns = $this->configEnv->getEnv('coloumns');
+
         foreach ($columns as $column) {
             if ($configProduct->getData($column['code']) != null) {
+
                 $product->setData($column['code'], $configProduct->getData($column['code']));
                 $productResource->saveAttribute($product, $column['code']);
             }
         }
+
         if ($configProduct->getData('atelier_model_variant') != null) {
-            $product->setData('atelier_model_variant', $configProduct->getData('atelier_model_variant'));
+
             $productResource->saveAttribute($product, 'atelier_model_variant');
         }
         if ($configProduct->getData('atelier_model_variant') != null) {
@@ -1545,6 +1549,7 @@ print 'g';
             $brand = strtolower($csvRow[2]);
             $category = strtolower($csvRow[7]);
             $sizeName = strtolower($csvRow[44]);
+
             switch ($sizeName) {
                 case "uomo":
                     if ($brand == "jacob cohen") {
@@ -1581,6 +1586,9 @@ print 'g';
                     break;
                 case "cinture donna":
                     $attributeSetId = 22;
+                    break;
+                case "jeans uomo":
+                    $attributeSetId = 21;
                     break;
             }
             if ($brand == 'jacob cohen') {
