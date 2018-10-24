@@ -1,2 +1,4 @@
 vendor
 composer.lock
+.DS_Store
+Console/.DS_Store
