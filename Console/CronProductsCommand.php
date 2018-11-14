@@ -490,83 +490,74 @@ class CronProductsCommand extends Command
         return $id;
     }
 
-    /**
+
+     /**
      * @param string $imageSrc
      * @param Product $product
      */
      private function addImageToproduct($imageSrc, Product $product, $order) {
-       $mySaveDir = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR;
-       $mySaveDir2 = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR;
-       $filename = basename($imageSrc);
-       $completeSaveLoc = $mySaveDir.$filename;
-       $completeSaveLoc2 = $mySaveDir2.$filename;
-       if(!file_exists($completeSaveLoc)){
-           try {
-               file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
-               file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
-           }catch (Exception $e){
-           }
-       } else {
-           $i = 1;
-           $completeSaveLoc = $mySaveDir.$i."_".$filename;
-           $completeSaveLoc2 = $mySaveDir2.$i."_".$filename;
-           while (file_exists($completeSaveLoc)) {
-               $i++;
-               $completeSaveLoc = $mySaveDir.$i."_".$filename;
-               $completeSaveLoc2 = $mySaveDir2.$i."_".$filename;
-           }
-           file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
-           file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
-       }
-       if ($order == 0) {
-          print 'saving ..';
+         $mySaveDir = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR;
+         $mySaveDir2 = $this->directoryList->getPath('media') . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR . 'catalog' . DIRECTORY_SEPARATOR . 'product' . DIRECTORY_SEPARATOR;
+         $filename = basename($imageSrc);
+         $completeSaveLoc = $mySaveDir.$filename;
+         $completeSaveLoc2 = $mySaveDir2.$filename;
+         if(!file_exists($completeSaveLoc)){
+             try {
+                 file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
+                 file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
+             }catch (Exception $e){
+             }
+         } else {
+             $i = 1;
+             $completeSaveLoc = $mySaveDir.$i."_".$filename;
+             $completeSaveLoc2 = $mySaveDir2.$i."_".$filename;
+             while (file_exists($completeSaveLoc)) {
+                 $i++;
+                 $completeSaveLoc = $mySaveDir.$i."_".$filename;
+                 $completeSaveLoc2 = $mySaveDir2.$i."_".$filename;
+             }
+             file_put_contents($completeSaveLoc,file_get_contents($imageSrc));
+             file_put_contents($completeSaveLoc2,file_get_contents($imageSrc));
+         }
+         if ($order == 0) {
+             $mgEntries = [];
+             $fileok = @fopen($imageSrc, "r");
+             if ($fileok) {
+                 $fileData = file_get_contents($completeSaveLoc);
+                 $fileType = mime_content_type($completeSaveLoc);
+                 if ($fileData) {
+                     $imageLabel = explode('.', $filename);
+                     $imageLabel = $imageLabel[0];
 
-          $imageLabel = explode('.', $filename);
-          $imageLabel = $imageLabel[0];
+                     $mediaEntry = $this->attributeMediaGalleryEntry;
+                     $mediaEntry->setLabel($imageLabel);
+                     $mediaEntry->setDisabled(false)
+                         ->setFile(basename($completeSaveLoc))
+                         ->setTypes(["image", "small_image", "thumbnail"])
+                         ->setLabel($imageLabel)
+                         ->setName($imageLabel)
+                         ->setMediaType('image')
+                         ->setPosition(0);
 
-
-          $filename = $completeSaveLoc;
-          $handle = fopen($filename, "r");
-          $data = fread($handle, filesize($filename));
-          $base64 = base64_encode($data);
-
-          $mediaGallery = $product->convertToMediaGalleryInterface(array(
-            array(
-                "media_type"    => "image",
-                "label"         => $imageLabel,
-                "position"      => 1,
-                "disabled"      => false,
-                "types"         => array(
-                    "image",
-                    "small_image",
-                    "thumbnail"
-                ),
-                "content"       => array(
-                    "base64_encoded_data"   => $base64,
-                    "type"                  => "image/png",
-                    "name"                  => basename($completeSaveLoc)
-                )
-            )
-        ));
-          $product->setMediaGalleryEntries($mediaGallery);
-
-          $product->addImageToMediaGallery($completeSaveLoc, null, true, false);
-
-          $product->save();
-
-          print 'done   ';
-
-
-
-
-
-       }else {
-         print 'not saving ...?';
-          #$product->addImageToMediaGallery($completeSaveLoc, null, false, false);
-
-          print 'done : ';
-       }
-   }
+                     $imageData = base64_encode($fileData);
+                     $this->imageContent->setName($imageLabel);
+                     $this->imageContent->setType($fileType);
+                     $this->imageContent->setBase64EncodedData($imageData);
+                     $mediaEntry->setContent($this->imageContent);
+                     $product->setMediaGalleryEntries([$mediaEntry]);
+                     @fclose($fileok);
+                     var_dump($this->directoryList->getRoot());
+                     $product->save();
+                 }
+             }
+             $this->addProductVariations($product, ObjectManager::getInstance());
+             //$product->setMediaGalleryEntries([$this->attributeMediaGalleryEntry]);
+         }else {
+             $product->addImageToMediaGallery($completeSaveLoc,null, false, false);
+             $product->save();
+             $this->addProductVariations($product, ObjectManager::getInstance());
+         }
+     }
 
     /**
      * This function is executed after the console command is types in terminal
@@ -590,8 +581,9 @@ class CronProductsCommand extends Command
         $output->writeln('start');
 
         //Read Prodotti.txt
-        $output->writeln($this->configEnv->getEnv('csv'));
+
         $fileProdotti = $this->configEnv->getEnv('csv');
+
         $fileDisponibilita = $this->configEnv->getEnv('availability_csv');
         $fileImages = $this->configEnv->getEnv('images_csv');
 
@@ -620,7 +612,7 @@ class CronProductsCommand extends Command
                 $csvArray = $this->readCsvFile($nameFileProdotti);
 
                 if (count($csvArray[0][0]) > 0) {
-$output->writeln(' -------------------- Prodotti -------------------- ');
+                $output->writeln(' -------------------- Prodotti -------------------- ');
                 foreach ($csvArray as $key => $csvRow) {
                     $attributeSet = $this->getAttributeSetId($csvRow);
                     $sku = $language . '-' . $csvRow[0] . '-' . $csvRow[3] . $csvRow[4];
@@ -657,7 +649,7 @@ $output->writeln(' -------------------- Prodotti -------------------- ');
 
                                   //Product doesn't exist create new product with ProductModel
 
-                                  $productByName = $this->getProductByName($csvRow[15], $lang_id);
+                                  $productByName = $this->getProductByName($csvRow[15]);
 
                                   if ($productByName->count() < 1) {
 
@@ -723,12 +715,6 @@ $output->writeln(' -------------------- Prodotti -------------------- ');
                                           //$product->getData('category_ids');
                                           $productResource = $product->getResource();
 
-                                          $product
-                                          ->setStoreId($lang_id)
-                                          ->setData('meta_title', $csvRow[30])
-                                          ->setData('meta_description', $csvRow[31]);
-                                          $product->save();
-
                                           $this->setProductAttributes($categories, $columns, $csvRow, $product, $productResource, $lang_id);
 
                                           #$this->addProductVariations($product, $objectManager, $lang_id);
@@ -755,6 +741,52 @@ $output->writeln(' -------------------- Prodotti -------------------- ');
 
                 if ($errorProducts != '')
                 mail('oriana.potente@21ilab.com, davi.leichsenring@21ilab.com' , 'Error log Cenci' , $errorProducts );
+                }
+
+                $fileProdottiMetaTag = $this->configEnv->getEnv('meta_csv');
+
+                if (file_exists($fileProdottiMetaTag)) {
+
+                    $csvArrayMeta = $this->readCsvFile($fileProdottiMetaTag);
+
+                    if (!empty($csvArrayMeta) && count($csvArrayMeta[0][0]) > 0) {
+                        $output->writeln(' -------------------- Meta Tags -------------------- ');
+                      if (count($csvArrayMeta[0][0]) > 0) {
+
+                          foreach ($csvArrayMeta as $key => $csvRow) {
+
+                            $name = $csvRow[5];
+                            $metaIT = utf8_decode((string)$csvRow[6]);
+                            $metaUE = utf8_decode((string)$csvRow[7]);
+
+                            $products = $this->getProductByName($name);
+
+                            $output->writeln($name);
+
+                            foreach ($products->getItems() as $product) {
+
+
+                              if (strtolower($product->getTypeId()) == 'configurable') {
+
+                                  if ($product->getName() == $name) {
+                                      $product
+                                      ->setStoreId(2)
+                                      ->setData('meta_title', $name)
+                                      ->setData('meta_description', $metaIT);
+                                      $product->save();
+
+                                      $product
+                                      ->setStoreId(3)
+                                      ->setData('meta_description', $metaUE);
+                                      $product->save();
+
+                                    }
+                                }
+                            }
+                          }
+
+                      }
+                    }
                 }
                 //Read Disponibilita.txt
                 $nameFileDisponibilita = str_replace('_[lang]', '', $fileDisponibilita);
@@ -809,7 +841,7 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
 
                             if ($product->getSku() == $sku) {
 
-                              $output->writeln(' -- simple: ' . $sizeString);
+                              $output->writeln(' -- simple: ' . $sizeString . ' - ' . $sizeAttributeCode. ' | price:' . $configProduct->getData('price'));
 
                                 $productModel = $product;
                                 $productResource = $productModel->getResource();
@@ -840,11 +872,10 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
                                 ;
                                 $this->stockRegistry->updateStockItemBySku($productModel->getSku(), $productStockData);
 
-                                $output->writeln(' -- set attr ');
                                 $this->setSimpleProductAttributes($productModel, $productResource, $configProduct, $output);
-                                $output->writeln(' -- done attr ');
                                 $this->setWebsiteIds($productModel, $lang_id);
-                                $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getSpecialPrice(), $lang_id);
+
+                                $this->setPrice($productModel, $productResource->getConnection(), $configProduct->getData('price'), $lang_id);
 
 
                             }
@@ -868,7 +899,7 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
                                 //->setStockData(['use_config_manage_stock' => 1, 'qty' => 100, 'is_qty_decimal' => 0, 'is_in_stock' => 1])
                             ;
                             $productModel->setData('id_atelier', $csvRow[0]);
-                            $productModel->setData($sizeAttributeCode, $this->getAttributeValueId('size_clothes', $sizeString));
+                            $productModel->setData($sizeAttributeCode, $this->getAttributeValueId($sizeAttributeCode, $sizeString));
                             //$productModel->setData('qty',$csvRow[2]);
                             //$productModel->setQty($csvRow[2]);
                             $productModel->save();
@@ -938,16 +969,22 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
                 foreach ($csvArrayImages as $csvArrayImage) {
 
                     $imageSrc = $this->directoryList->getRoot().DIRECTORY_SEPARATOR."atelier".DIRECTORY_SEPARATOR."images".DIRECTORY_SEPARATOR.$csvArrayImage[1];
+
                     if(file_exists($imageSrc)) {
+
                         $products = $this->getProductByAtelierId($csvArrayImage[0]);
+
                         foreach ($products as $product) {
+
+                            $output->writeln('read: ' . $product->getSku());
                             if (strtolower($product->getTypeId()) == 'configurable') {
+
 
                                 //$con = $this->resourceModel->getConnection();
                                 //$con->query("DELETE FROM catalog_product_entity_varchar WHERE value = '".$imageSrc."' AND store = ".$lang_id." AND entity_id = ".$productModel->getId());
 
                                 $this->addImageToproduct($imageSrc, $product, $csvArrayImage[2]);
-                                $output->writeln($csvArrayImage[1]);
+                                $output->writeln('read: ' . $product->getSku());
                             }
                         }
                     }
@@ -966,6 +1003,8 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
 
         }
     }
+
+
 
     /**
      * @param Product $product
@@ -1121,7 +1160,7 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
      * @param string $type
      * @return \Magento\Catalog\Model\ResourceModel\Product\Collection
      */
-    private function getProductByName($name, $lang_id = null) {
+    private function getProductByName($name, $type = null) {
 
         $collection = $this->collectionFactory->create();
         $collection->addAttributeToSelect('*');
@@ -1130,7 +1169,8 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
         $collection->addAttributeToFilter('name',['like'=> ''.$name.'']);
         //if ($lang_id != null) $collection->addStoreFilter($lang_id);
 
-        #$collection->addAttributeToFilter('type_id',['in'=> $type]);
+        if ($type != null)
+        $collection->addAttributeToFilter('type_id',['in'=> $type]);
 
         return $collection;
     }
@@ -1146,6 +1186,7 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
         $option = null;
         try {
             $attribute = $this->eavConfig->getAttribute('catalog_product', $attributeCode);
+            $attribute->setStoreId(2);
             $option = $attribute->getSource()->getOptionId($attributeValue);
         } catch (LocalizedException $e) {
             print('Errore: '.$e->getMessage());
@@ -1340,9 +1381,6 @@ $output->writeln(' -------------------- Disponibilita -------------------- ');
 
 
         foreach ($configCatIds as $configCatId) {
-
-            $output->writeln('-- cat:');
-            print_r( $configCatId);
 
             if (!in_array($configCatId, $catIds)) {
                 $this->categoryLinkManagement->assignProductToCategories($product->getSku(),
