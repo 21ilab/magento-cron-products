@@ -46,19 +46,19 @@ Save information about product attributes
 
 Usable CSV Row positions:
 ---
-[0]  = ID atelier
-[3]  = atelier model variant part 1
-[4]  = atelier model variant part 2
-[5]  = Category
-[8]  = Subcategory
-[12] = Pattern
-[14] = short description
-[15] = name
-[16] = Price
-[18] = Weight
-[22] = Enable/Disable (based on [48])
-[23] = Color
-[48] = Enable/Disable
+* [0]  = ID atelier
+* [3]  = atelier model variant part 1
+* [4]  = atelier model variant part 2
+* [5]  = Category
+* [8]  = Subcategory
+* [12] = Pattern
+* [14] = short description
+* [15] = name
+* [16] = Price
+* [18] = Weight
+* [22] = Enable/Disable (based on [48])
+* [23] = Color
+* [48] = Enable/Disable
 
 
 
